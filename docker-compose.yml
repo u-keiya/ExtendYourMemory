@@ -1,0 +1,41 @@
+version: '3.9'
+
+services:
+  # MCPサーバー
+  mcp-server:
+    build: ./mcp-server
+    environment:
+      - GOOGLE_DRIVE_API_KEY=${GOOGLE_DRIVE_API_KEY}
+      - CHROME_API_KEY=${CHROME_API_KEY}
+      - MISTRAL_OCR_API_KEY=${MISTRAL_OCR_API_KEY}
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./mcp-tools:/app/tools
+    restart: unless-stopped
+  
+  # バックエンドAPI
+  backend:
+    build: ./backend
+    environment:
+      - MCP_SERVER_URL=http://mcp-server:8501
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - DEBUG=true
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mcp-server
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+  
+  # フロントエンド
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
