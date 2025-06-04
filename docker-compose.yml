@@ -1,13 +1,11 @@
-version: '3.9'
 
 services:
   # MCPサーバー
   mcp-server:
     build: ./mcp-server
     environment:
-      - GOOGLE_DRIVE_API_KEY=${GOOGLE_DRIVE_API_KEY}
-      - CHROME_API_KEY=${CHROME_API_KEY}
-      - MISTRAL_OCR_API_KEY=${MISTRAL_OCR_API_KEY}
+      - GOOGLE_SERVICE_ACCOUNT_FILE=${GOOGLE_SERVICE_ACCOUNT_FILE:-./credentials/service-account-key.json}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
     ports:
       - "8501:8501"
     volumes:

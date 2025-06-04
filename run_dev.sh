@@ -11,18 +11,28 @@ if [ ! -f .env ]; then
     cp .env.example .env
     echo "📝 Please edit .env file with your API keys before running again."
     echo "   Required: GOOGLE_API_KEY"
-    echo "   Optional: GOOGLE_DRIVE_API_KEY, CHROME_API_KEY, MISTRAL_OCR_API_KEY"
+    echo "   Optional: GOOGLE_SERVICE_ACCOUNT_FILE, MISTRAL_API_KEY"
+    echo "   Chrome History: Install Chrome Extension (no API key needed)"
     exit 1
 fi
 
 # Check if Docker is running
 if ! docker info > /dev/null 2>&1; then
-    echo "❌ Docker is not running. Please start Docker and try again."
-    exit 1
+    echo "❌ Docker is not running or permission denied."
+    echo "💡 Try running with sudo or add your user to docker group:"
+    echo "   sudo usermod -aG docker $USER"
+    echo "   Then log out and log back in."
+    echo ""
+    echo "🔄 Attempting to run with sudo..."
+    DOCKER_CMD="sudo docker"
+    COMPOSE_CMD="sudo docker compose"
+else
+    DOCKER_CMD="docker"
+    COMPOSE_CMD="docker compose"
 fi
 
 echo "🐳 Starting services with Docker Compose..."
-docker-compose up --build -d
+$COMPOSE_CMD up --build -d
 
 echo "⏳ Waiting for services to start..."
 sleep 10

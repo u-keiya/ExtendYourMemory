@@ -7,8 +7,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN chmod +x server.py
+RUN chmod +x server_fastapi.py
 
 EXPOSE 8501
 
-CMD ["python", "server.py"]
+CMD ["python", "server_fastapi.py"]

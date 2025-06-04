@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Extend Your Memory - Chrome History Bridge",
+  "version": "1.0.0",
+  "description": "Bridge extension to provide secure Chrome history access for Extend Your Memory",
+  "permissions": [
+    "history",
+    "storage",
+    "activeTab"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Extend Your Memory"
+  },
+  "host_permissions": [
+    "http://localhost:8501/*",
+    "http://localhost:8000/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["history-bridge.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

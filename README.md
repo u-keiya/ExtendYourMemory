@@ -23,7 +23,7 @@ cp .env.example .env
 
 ```bash
 # Start all services with Docker Compose
-docker-compose up --build
+docker compose up --build
 
 # Or start individual services:
 
@@ -63,8 +63,7 @@ python test_setup.py
 
 1. **Google API Key**: For embeddings and LLM access
 2. **Google Drive API Key**: For Google Drive file access
-3. **Chrome API Key**: For browser history access
-4. **Mistral OCR API Key**: For PDF OCR processing
+3. **Mistral OCR API Key**: For PDF OCR processing
 
 ## 🛠️ Development Commands
 

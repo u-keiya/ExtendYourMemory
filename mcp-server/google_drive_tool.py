@@ -6,9 +6,9 @@ import os
 import asyncio
 from typing import List, Dict, Any, Optional
 from google.oauth2 import service_account
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from langchain_google_community import GoogleDriveLoader
 import logging
 
 logger = logging.getLogger(__name__)

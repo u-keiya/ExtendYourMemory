@@ -168,9 +168,8 @@ async def check_environment():
     ]
     
     optional_vars = [
-        "GOOGLE_DRIVE_API_KEY", 
-        "CHROME_API_KEY",
-        "MISTRAL_OCR_API_KEY"
+        "GOOGLE_SERVICE_ACCOUNT_FILE", 
+        "MISTRAL_API_KEY"
     ]
     
     print("📋 Required Environment Variables:")
