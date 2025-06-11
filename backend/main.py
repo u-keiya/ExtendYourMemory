@@ -133,10 +133,16 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
             ).dict()
         }))
         
-        keywords = await rag_pipeline.generate_keywords(query)
-        logger.info(f"Generated keywords: {keywords}")
+        # AGRフレームワークによる階層的キーワード生成
+        keyword_data = await rag_pipeline.generate_hierarchical_keywords(query)
+        keywords = keyword_data.get('all_keywords', [])
+        hierarchical_keywords = keyword_data.get('hierarchical', {})
+        query_analysis = keyword_data.get('analysis', {})
         
-        # ステップ2-3: MCP検索
+        logger.info(f"Generated {len(keywords)} keywords using AGR framework")
+        logger.info(f"Query analysis: {query_analysis.get('intent', 'unknown')} / {query_analysis.get('complexity', 'medium')}")
+        
+        # ステップ2-3: MCP検索（階層的キーワード対応）
         await websocket.send_text(json.dumps({
             "event": "search_progress",
             "data": SearchProgress(
@@ -145,12 +151,15 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
                 message="MCPサーバーでソースを検索中...",
                 details={
                     "keywords": keywords,
+                    "hierarchical_strategy": query_analysis.get('search_strategy', '包括検索'),
+                    "primary_keywords": len(hierarchical_keywords.get('primary_keywords', [])),
+                    "secondary_keywords": len(hierarchical_keywords.get('secondary_keywords', [])),
                     "searching": ["google_drive", "chrome_history"]
                 }
             ).dict()
         }))
         
-        documents = await rag_pipeline.search_with_mcp(keywords, excluded_folder_ids)
+        documents = await rag_pipeline.search_with_mcp(keywords, excluded_folder_ids, keyword_data)
         logger.info(f"Retrieved {len(documents)} documents from MCP")
         
         # 検索結果が0件の場合はエラーを返す
@@ -161,7 +170,7 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
             }))
             raise HTTPException(status_code=404, detail="検索結果が0件です")
         
-        # ステップ4: ベクトル化
+        # ステップ4: ベクトル化（適応的最適化対応）
         await websocket.send_text(json.dumps({
             "event": "search_progress",
             "data": SearchProgress(
@@ -171,6 +180,8 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
                 details={
                     "total_documents": len(documents),
                     "processed": len(documents),
+                    "adaptive_chunking": True,
+                    "query_intent": query_analysis.get('intent', 'unknown'),
                     "sources": {
                         "google_drive": len([d for d in documents if d.metadata.get("source", "").startswith("google")]),
                         "chrome_history": len([d for d in documents if d.metadata.get("source", "").startswith("chrome")])
@@ -179,7 +190,7 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
             ).dict()
         }))
         
-        vector_store = await rag_pipeline.process_and_store_documents(documents)
+        vector_store = await rag_pipeline.process_and_store_documents(documents, query_analysis)
         logger.info("Documents processed and stored in vector database")
         
         # ベクトルストアを保存
@@ -248,11 +259,15 @@ async def search_endpoint(request: QueryRequest):
             excluded_folder_ids = excluded_folders_config.get_excluded_folder_ids()
             logger.info(f"Auto-loaded {len(excluded_folder_ids)} excluded folders from config")
         
-        # 簡略化された検索プロセス
-        keywords = await rag_pipeline.generate_keywords(request.query)
-        logger.info(f"Generated keywords: {keywords}")
+        # 簡略化された検索プロセス（AGRフレームワーク対応）
+        keyword_data = await rag_pipeline.generate_hierarchical_keywords(request.query)
+        keywords = keyword_data.get('all_keywords', [])
+        query_analysis = keyword_data.get('analysis', {})
         
-        documents = await rag_pipeline.search_with_mcp(keywords, excluded_folder_ids)
+        logger.info(f"Generated {len(keywords)} keywords using AGR framework")
+        logger.info(f"Query analysis: {query_analysis.get('intent', 'unknown')}")
+        
+        documents = await rag_pipeline.search_with_mcp(keywords, excluded_folder_ids, keyword_data)
         logger.info(f"Retrieved {len(documents)} documents from MCP")
         
         # 検索結果が0件の場合はエラーを返す
@@ -260,8 +275,8 @@ async def search_endpoint(request: QueryRequest):
             logger.error("No documents found from MCP search")
             raise HTTPException(status_code=404, detail="検索結果が0件でした。キーワードを変更して再度検索してください。")
         
-        vector_store = await rag_pipeline.process_and_store_documents(documents)
-        logger.info("Documents processed and stored")
+        vector_store = await rag_pipeline.process_and_store_documents(documents, query_analysis)
+        logger.info("Documents processed and stored with adaptive optimization")
         
         if vector_store:
             await rag_pipeline.save_vector_store()

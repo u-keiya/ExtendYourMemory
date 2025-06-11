@@ -185,39 +185,64 @@ class GoogleDriveTool:
             logger.error(f"Failed to handle OAuth2 callback: {e}")
             return False
     
-    async def search_files(
-        self,
-        keywords: List[str],
-        file_types: Optional[List[str]] = None,
-        folder_id: Optional[str] = "root",
-        max_results: int = 50,
-        excluded_folder_ids: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
-        """Google Driveからファイルを検索"""
+    def build_optimized_drive_query(self, hierarchical_keywords: Dict[str, List[str]], file_types: Optional[List[str]] = None) -> str:
+        """階層的キーワードに基づく最適化されたGoogle Drive検索クエリ構築"""
         
-        if not self.service:
-            logger.error("Google Drive service not available")
-            return []
+        query_parts = []
         
         try:
-            # クエリ構築
-            query_parts = []
-            
-            # フォルダ指定
-            if folder_id and folder_id != "root":
-                query_parts.append(f"'{folder_id}' in parents")
-            
-            # 除外フォルダ指定（階層的除外）
-            all_excluded_folders = []
-            if excluded_folder_ids:
-                all_excluded_folders = await self._get_all_descendant_folders(excluded_folder_ids)
-                logger.info(f"Total folders to exclude (including descendants): {len(all_excluded_folders)}")
+            # 必須キーワード (AND検索) - フレーズマッチング対応
+            primary_keywords = hierarchical_keywords.get('primary_keywords', [])
+            if primary_keywords:
+                primary_conditions = []
+                for keyword in primary_keywords:
+                    if ' ' in keyword and len(keyword.split()) <= 3:
+                        # フレーズマッチング: スペースを含む2-3語
+                        primary_conditions.append(f'fullText contains "{keyword}"')
+                    else:
+                        # 単語マッチング
+                        primary_conditions.append(f'fullText contains \'{keyword}\'')
                 
-                # クエリで全除外フォルダを指定
-                for excluded_id in all_excluded_folders:
-                    query_parts.append(f"not '{excluded_id}' in parents")
+                if len(primary_conditions) == 1:
+                    query_parts.append(primary_conditions[0])
+                else:
+                    query_parts.append(f"({' and '.join(primary_conditions)})")
             
-            # ファイルタイプ指定
+            # 関連キーワード (OR検索)
+            secondary_keywords = hierarchical_keywords.get('secondary_keywords', [])
+            if secondary_keywords:
+                secondary_conditions = []
+                for keyword in secondary_keywords:
+                    if ' ' in keyword and len(keyword.split()) <= 3:
+                        secondary_conditions.append(f'fullText contains "{keyword}"')
+                    else:
+                        secondary_conditions.append(f'fullText contains \'{keyword}\'')
+                
+                if secondary_conditions:
+                    query_parts.append(f"({' or '.join(secondary_conditions)})")
+            
+            # 文脈キーワード (OR検索、重み付け低)
+            context_keywords = hierarchical_keywords.get('context_keywords', [])
+            if context_keywords and len(query_parts) > 0:  # 他にキーワードがある場合のみ
+                context_conditions = []
+                for keyword in context_keywords:
+                    if ' ' in keyword:
+                        context_conditions.append(f'fullText contains "{keyword}"')
+                    else:
+                        context_conditions.append(f'fullText contains \'{keyword}\'')
+                
+                if context_conditions:
+                    query_parts.append(f"({' or '.join(context_conditions)})")
+            
+            # 除外キーワード
+            negative_keywords = hierarchical_keywords.get('negative_keywords', [])
+            for neg_keyword in negative_keywords:
+                if ' ' in neg_keyword:
+                    query_parts.append(f'not fullText contains "{neg_keyword}"')
+                else:
+                    query_parts.append(f'not fullText contains \'{neg_keyword}\'')
+            
+            # ファイルタイプ制限
             if file_types:
                 mime_type_map = {
                     'document': 'application/vnd.google-apps.document',
@@ -234,18 +259,107 @@ class GoogleDriveTool:
                 if mime_conditions:
                     query_parts.append(f"({' or '.join(mime_conditions)})")
             
-            # キーワード検索
-            if keywords:
-                keyword_conditions = []
-                for keyword in keywords:
-                    keyword_conditions.append(f"fullText contains '{keyword}'")
-                query_parts.append(f"({' or '.join(keyword_conditions)})")
-            
             # トラッシュを除外
             query_parts.append("trashed=false")
             
+            final_query = " and ".join(query_parts)
+            logger.info(f"Optimized Google Drive query: {final_query}")
+            
+            return final_query
+            
+        except Exception as e:
+            logger.error(f"Error building optimized query: {e}")
+            # フォールバック: シンプルなOR検索
+            all_keywords = []
+            for keyword_list in hierarchical_keywords.values():
+                if isinstance(keyword_list, list):
+                    all_keywords.extend(keyword_list)
+            
+            if all_keywords:
+                simple_conditions = [f'fullText contains \'{kw}\'' for kw in all_keywords[:10]]
+                return f"({' or '.join(simple_conditions)}) and trashed=false"
+            else:
+                return "trashed=false"
+
+    async def search_files(
+        self,
+        keywords: List[str],
+        file_types: Optional[List[str]] = None,
+        folder_id: Optional[str] = "root",
+        max_results: int = 50,
+        excluded_folder_ids: Optional[List[str]] = None,
+        hierarchical_keywords: Optional[Dict[str, List[str]]] = None
+    ) -> List[Dict[str, Any]]:
+        """Google Driveからファイルを検索"""
+        
+        if not self.service:
+            logger.error("Google Drive service not available")
+            return []
+        
+        try:
+            # 階層的キーワードが提供されている場合は最適化クエリを使用
+            if hierarchical_keywords:
+                base_query = self.build_optimized_drive_query(hierarchical_keywords, file_types)
+            else:
+                # フォールバック: 従来のシンプルなクエリ構築
+                query_parts = []
+                
+                # キーワード検索
+                if keywords:
+                    keyword_conditions = []
+                    for keyword in keywords:
+                        # フレーズ検出の改善
+                        if ' ' in keyword and len(keyword.split()) <= 3:
+                            keyword_conditions.append(f'fullText contains "{keyword}"')
+                        else:
+                            keyword_conditions.append(f'fullText contains \'{keyword}\'')
+                    query_parts.append(f"({' or '.join(keyword_conditions)})")
+                
+                # ファイルタイプ指定
+                if file_types:
+                    mime_type_map = {
+                        'document': 'application/vnd.google-apps.document',
+                        'sheet': 'application/vnd.google-apps.spreadsheet',
+                        'pdf': 'application/pdf',
+                        'presentation': 'application/vnd.google-apps.presentation'
+                    }
+                    
+                    mime_conditions = []
+                    for file_type in file_types:
+                        if file_type.lower() in mime_type_map:
+                            mime_conditions.append(f"mimeType='{mime_type_map[file_type.lower()]}'")
+                    
+                    if mime_conditions:
+                        query_parts.append(f"({' or '.join(mime_conditions)})")
+                
+                # トラッシュを除外
+                query_parts.append("trashed=false")
+                
+                base_query = " and ".join(query_parts)
+            
+            # フォルダ制限と除外の追加
+            query_parts = [base_query] if base_query != "trashed=false" else ["trashed=false"]
+            
+            # フォルダ指定
+            if folder_id and folder_id != "root":
+                query_parts.append(f"'{folder_id}' in parents")
+            
+            # 除外フォルダ指定（階層的除外）
+            all_excluded_folders = []
+            if excluded_folder_ids:
+                all_excluded_folders = await self._get_all_descendant_folders(excluded_folder_ids)
+                logger.info(f"Total folders to exclude (including descendants): {len(all_excluded_folders)}")
+                
+                # クエリで全除外フォルダを指定 (分割処理)
+                if len(all_excluded_folders) > 20:  # Google Drive APIの制限を考慮
+                    logger.warning(f"Too many excluded folders ({len(all_excluded_folders)}), limiting to first 20")
+                    all_excluded_folders = all_excluded_folders[:20]
+                
+                for excluded_id in all_excluded_folders:
+                    query_parts.append(f"not '{excluded_id}' in parents")
+            
             query = " and ".join(query_parts)
-            logger.info(f"Google Drive search query: {query}")
+            logger.info(f"Final Google Drive search query: {query[:500]}...")  # ログを制限
             
             # ファイル検索実行
             results = self.service.files().list(
@@ -282,7 +396,22 @@ class GoogleDriveTool:
                     logger.error(f"Error processing file {file['name']}: {e}")
                     continue
             
-            logger.info(f"Found {len(documents)} documents matching keywords: {keywords}")
+            # 結果品質の分析とログ
+            if hierarchical_keywords:
+                primary_count = len(hierarchical_keywords.get('primary_keywords', []))
+                secondary_count = len(hierarchical_keywords.get('secondary_keywords', []))
+                logger.info(f"Found {len(documents)} documents using hierarchical keywords")
+                logger.info(f"  Primary keywords: {primary_count}, Secondary: {secondary_count}")
+            else:
+                logger.info(f"Found {len(documents)} documents using simple keywords: {keywords[:3]}...")
+            
+            # 結果の多様性分析
+            source_types = {}
+            for doc in documents:
+                mime_type = doc.get('mime_type', 'unknown')
+                source_types[mime_type] = source_types.get(mime_type, 0) + 1
+            
+            logger.info(f"Result diversity: {dict(list(source_types.items())[:5])}")  # Top 5 types
             return documents
             
         except HttpError as e:
@@ -521,6 +650,25 @@ class GoogleDriveTool:
             logger.error(f"Error listing files in folder {folder_id}: {e}")
             return []
     
+    async def search_files_with_hierarchical_keywords(
+        self,
+        hierarchical_keywords: Dict[str, List[str]],
+        file_types: Optional[List[str]] = None,
+        folder_id: Optional[str] = "root",
+        max_results: int = 50,
+        excluded_folder_ids: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """階層的キーワードを使用した最適化された検索"""
+        
+        return await self.search_files(
+            keywords=[],  # 空のキーワードリスト
+            file_types=file_types,
+            folder_id=folder_id,
+            max_results=max_results,
+            excluded_folder_ids=excluded_folder_ids,
+            hierarchical_keywords=hierarchical_keywords
+        )
+
     async def search_files_with_langchain(
         self,
         keywords: List[str],
@@ -597,5 +745,8 @@ class GoogleDriveTool:
             "authentication_method": auth_method,
             "oauth_flow_configured": self.oauth_flow is not None,
             "needs_authentication": self.service is None and self.oauth_flow is not None,
-            "langchain_available": LANGCHAIN_GOOGLE_AVAILABLE
+            "langchain_available": LANGCHAIN_GOOGLE_AVAILABLE,
+            "hierarchical_search_enabled": True,
+            "advanced_query_builder": True,
+            "phrase_matching_support": True
         }

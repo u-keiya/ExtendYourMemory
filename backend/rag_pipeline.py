@@ -14,6 +14,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmb
 from langchain_community.vectorstores import FAISS
 import httpx
 from llm_query_generator import LLMQueryGenerator
+from adaptive_faiss_optimizer import AdaptiveFAISSOptimizer
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class RAGPipeline:
         self.retriever = None
         self.mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8501")
         self.query_generator = None
+        self.faiss_optimizer = AdaptiveFAISSOptimizer()  # 新しい最適化コンポーネント
         self._initialize_models()
     
     def _initialize_models(self):
@@ -60,18 +62,26 @@ class RAGPipeline:
             logger.info("RAG pipeline will use mock responses")
     
     async def generate_keywords(self, user_query: str) -> List[str]:
-        """ユーザークエリから検索キーワードを生成（完全LLMベース）"""
+        """ユーザークエリから検索キーワードを生成（後方互換性のため）"""
+        
+        keyword_data = await self.generate_hierarchical_keywords(user_query)
+        return keyword_data.get('all_keywords', [])
+
+    async def generate_hierarchical_keywords(self, user_query: str) -> Dict[str, Any]:
+        """AGRフレームワークを使用した階層的キーワード生成"""
         
         if not self.query_generator:
             logger.error("Query generator not initialized")
             raise RuntimeError("LLM Query Generator not available - cannot generate keywords")
         
         try:
-            # LLM Query Generator を使用
+            # LLM Query Generator を使用（AGRフレームワーク）
             keyword_data = await self.query_generator.generate_diverse_keywords(user_query)
             
             # 全てのキーワードを取得
             all_keywords = keyword_data.get('all_keywords', [])
+            hierarchical = keyword_data.get('hierarchical', {})
+            analysis = keyword_data.get('analysis', {})
             
             # 重複除去
             unique_keywords = []
@@ -82,30 +92,53 @@ class RAGPipeline:
                     unique_keywords.append(keyword)
                     seen.add(keyword.lower())
             
-            logger.info(f"LLM keyword generation produced {len(unique_keywords)} keywords")
-            logger.info(f"Keywords by category: {dict((k, len(v)) for k, v in keyword_data.items() if isinstance(v, list) and k != 'all_keywords')}")
+            logger.info(f"AGR keyword generation produced {len(unique_keywords)} keywords")
+            logger.info(f"Query analysis: {analysis.get('intent', 'unknown')} / {analysis.get('complexity', 'medium')}")
             
-            return unique_keywords[:20]  # 最大20個
+            # 階層情報のログ
+            primary_count = len(hierarchical.get('primary_keywords', []))
+            secondary_count = len(hierarchical.get('secondary_keywords', []))
+            context_count = len(hierarchical.get('context_keywords', []))
+            negative_count = len(hierarchical.get('negative_keywords', []))
+            
+            logger.info(f"Hierarchical breakdown: Primary={primary_count}, Secondary={secondary_count}, Context={context_count}, Negative={negative_count}")
+            
+            return {
+                'all_keywords': unique_keywords[:20],  # 最大20個
+                'hierarchical': hierarchical,
+                'analysis': analysis
+            }
             
         except Exception as e:
-            logger.error(f"Error in LLM keyword generation: {e}")
+            logger.error(f"Error in AGR keyword generation: {e}")
             raise RuntimeError(f"Failed to generate keywords with LLM: {e}")
     
     
-    async def search_with_mcp(self, keywords: List[str], excluded_folder_ids: Optional[List[str]] = None) -> List[Document]:
+    async def search_with_mcp(self, keywords: List[str], excluded_folder_ids: Optional[List[str]] = None, hierarchical_keywords: Optional[Dict[str, Any]] = None) -> List[Document]:
         """MCPサーバーを使用してドキュメントを検索"""
         
         documents = []
         
         try:
             async with httpx.AsyncClient(timeout=180.0) as client:
-                # Google Drive検索
+                # Google Drive検索 - 階層的キーワード対応
                 try:
-                    gdrive_request = {
-                        "keywords": keywords,
-                        "file_types": ["document", "sheet", "pdf"],
-                        "max_results": 100
-                    }
+                    if hierarchical_keywords:
+                        # 階層的キーワードを使用した最適化検索
+                        gdrive_request = {
+                            "hierarchical_keywords": hierarchical_keywords.get('hierarchical', {}),
+                            "file_types": ["document", "sheet", "pdf"],
+                            "max_results": 100
+                        }
+                        logger.info(f"Using hierarchical keywords for Google Drive search")
+                    else:
+                        # 従来のキーワード検索
+                        gdrive_request = {
+                            "keywords": keywords,
+                            "file_types": ["document", "sheet", "pdf"],
+                            "max_results": 100
+                        }
+                        logger.info(f"Using simple keywords for Google Drive search: {keywords[:3]}...")
                     
                     # 除外フォルダがある場合は追加
                     if excluded_folder_ids:
@@ -200,7 +233,7 @@ class RAGPipeline:
         logger.info(f"Retrieved {len(documents)} documents from MCP search")
         return documents
     
-    async def process_and_store_documents(self, documents: List[Document]) -> Optional[FAISS]:
+    async def process_and_store_documents(self, documents: List[Document], query_analysis: Optional[Dict[str, Any]] = None) -> Optional[FAISS]:
         """ドキュメントを処理してFAISSベクトルストアに保存"""
         
         if not self.embeddings:
@@ -212,12 +245,33 @@ class RAGPipeline:
             return None
         
         try:
-            # ドキュメントを分割
-            splits = await self._split_documents(documents)
+            # 適応的チャンク戦略の取得
+            if query_analysis:
+                chunk_config = self.faiss_optimizer.optimize_chunk_strategy(query_analysis)
+            else:
+                chunk_config = {
+                    "chunk_size": 1000,
+                    "chunk_overlap": 200,
+                    "separators": ["\n\n", "\n", "。", ".", " ", ""]
+                }
+            
+            # ドキュメントを最適化された戦略で分割
+            splits = await self._split_documents_optimized(documents, chunk_config)
             
             if not splits:
                 logger.warning("No document splits created")
                 return None
+            
+            # 適応的検索パラメータの取得
+            if query_analysis:
+                search_params = self.faiss_optimizer.get_adaptive_search_params(query_analysis, len(splits))
+            else:
+                search_params = {
+                    "search_type": "mmr",
+                    "k": 6,
+                    "fetch_k": 20,
+                    "lambda_mult": 0.5
+                }
             
             # ベクトル化とストア
             if self.vector_store is None:
@@ -232,17 +286,18 @@ class RAGPipeline:
                     splits
                 )
             
-            # リトリーバーを更新
+            # 適応的パラメータでリトリーバーを更新
             self.retriever = self.vector_store.as_retriever(
-                search_type="mmr",  # Maximal Marginal Relevance
+                search_type=search_params.get("search_type", "mmr"),
                 search_kwargs={
-                    "k": 6,
-                    "fetch_k": 20,
-                    "lambda_mult": 0.5
+                    "k": search_params.get("k", 6),
+                    "fetch_k": search_params.get("fetch_k", 20),
+                    "lambda_mult": search_params.get("lambda_mult", 0.5)
                 }
             )
             
             logger.info(f"Processed {len(splits)} document chunks into FAISS vector store")
+            logger.info(f"Using adaptive search params: k={search_params.get('k')}, fetch_k={search_params.get('fetch_k')}, lambda_mult={search_params.get('lambda_mult')}")
             return self.vector_store
             
         except Exception as e:
@@ -303,6 +358,68 @@ class RAGPipeline:
                 logger.error(f"Error splitting document: {e}")
                 continue
         
+        return all_splits
+    
+    async def _split_documents_optimized(self, documents: List[Document], chunk_config: Dict[str, Any]) -> List[Document]:
+        """最適化されたパラメータでドキュメントを分割"""
+        
+        all_splits = []
+        
+        chunk_size = chunk_config.get("chunk_size", 1000)
+        chunk_overlap = chunk_config.get("chunk_overlap", 200)
+        separators = chunk_config.get("separators", ["\n\n", "\n", "。", ".", " ", ""])
+        
+        for doc in documents:
+            try:
+                content = doc.page_content
+                metadata = doc.metadata
+                
+                # Markdownドキュメントの場合
+                if (metadata.get("ocr_processed") or 
+                    ".md" in metadata.get("title", "") or
+                    content.startswith("#")):
+                    
+                    # Markdownヘッダーで分割
+                    headers_to_split_on = [
+                        ("#", "Header 1"),
+                        ("##", "Header 2"),
+                        ("###", "Header 3")
+                    ]
+                    
+                    markdown_splitter = MarkdownHeaderTextSplitter(
+                        headers_to_split_on=headers_to_split_on,
+                        strip_headers=False
+                    )
+                    
+                    md_splits = markdown_splitter.split_text(content)
+                    
+                    # さらに最適化されたパラメータで分割
+                    text_splitter = RecursiveCharacterTextSplitter(
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap,
+                        separators=separators
+                    )
+                    
+                    for split in md_splits:
+                        split.metadata.update(metadata)
+                        chunks = text_splitter.split_documents([split])
+                        all_splits.extend(chunks)
+                else:
+                    # 通常のテキストドキュメント（最適化されたパラメータ）
+                    text_splitter = RecursiveCharacterTextSplitter(
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap,
+                        separators=separators
+                    )
+                    
+                    chunks = text_splitter.split_documents([doc])
+                    all_splits.extend(chunks)
+                    
+            except Exception as e:
+                logger.error(f"Error splitting document with optimized config: {e}")
+                continue
+        
+        logger.info(f"Optimized splitting: {len(all_splits)} chunks with size={chunk_size}, overlap={chunk_overlap}")
         return all_splits
     
     async def generate_rag_queries(self, original_query: str) -> List[str]:
