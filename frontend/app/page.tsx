@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Search, Loader2, FileText, Clock, Database } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Search, Loader2, FileText, Clock, Database, Shield, CheckCircle, AlertCircle } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 
 interface SearchProgress {
@@ -20,12 +20,105 @@ interface SearchResult {
   relevant_documents: number
 }
 
+interface ToolStatus {
+  google_drive: {
+    service_initialized: boolean
+    credentials_available: boolean
+    authentication_method: string
+    oauth_flow_configured: boolean
+    needs_authentication: boolean
+    langchain_available: boolean
+  }
+  chrome_history: {
+    tool_type: string
+    cache_valid: boolean
+    cached_items: number
+    extension_communication: string
+  }
+  mistral_ocr: {
+    api_key_configured: boolean
+    client_initialized: boolean
+    status: string
+  }
+}
+
 export default function Home() {
   const [query, setQuery] = useState('')
   const [isSearching, setIsSearching] = useState(false)
   const [progress, setProgress] = useState<SearchProgress | null>(null)
   const [result, setResult] = useState<SearchResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [toolStatus, setToolStatus] = useState<ToolStatus | null>(null)
+  const [isAuthenticating, setIsAuthenticating] = useState(false)
+
+  const mcpServerUrl = 'http://localhost:8501'
+
+  // ツール状態を取得
+  const fetchToolStatus = async () => {
+    try {
+      const response = await fetch(`${mcpServerUrl}/tools/check_tools_status`)
+      if (response.ok) {
+        const status = await response.json()
+        setToolStatus(status)
+      }
+    } catch (error) {
+      console.error('Failed to fetch tool status:', error)
+    }
+  }
+
+  // Google Drive認証を開始
+  const handleGoogleAuth = async () => {
+    try {
+      setIsAuthenticating(true)
+      const response = await fetch(`${mcpServerUrl}/auth/google/login`)
+      
+      if (response.ok) {
+        const data = await response.json()
+        // 新しいウィンドウで認証URLを開く
+        const authWindow = window.open(
+          data.auth_url,
+          'google-auth',
+          'width=500,height=600,scrollbars=yes,resizable=yes'
+        )
+
+        // 認証完了をポーリングで確認
+        const checkAuth = setInterval(async () => {
+          try {
+            const statusResponse = await fetch(`${mcpServerUrl}/tools/check_tools_status`)
+            if (statusResponse.ok) {
+              const status = await statusResponse.json()
+              if (status.google_drive.credentials_available) {
+                clearInterval(checkAuth)
+                setToolStatus(status)
+                setIsAuthenticating(false)
+                if (authWindow) authWindow.close()
+              }
+            }
+          } catch (error) {
+            console.error('Auth check failed:', error)
+          }
+        }, 2000)
+
+        // 30秒でタイムアウト
+        setTimeout(() => {
+          clearInterval(checkAuth)
+          setIsAuthenticating(false)
+          if (authWindow) authWindow.close()
+        }, 30000)
+
+      } else {
+        throw new Error('Failed to get auth URL')
+      }
+    } catch (error) {
+      console.error('Authentication failed:', error)
+      setIsAuthenticating(false)
+    }
+  }
+
+  // 初期ロード時にツール状態を取得
+  useEffect(() => {
+    fetchToolStatus()
+  }, [])
 
   const handleSearch = async () => {
     if (!query.trim()) return
@@ -53,6 +146,8 @@ export default function Home() {
         } else if (data.event === 'search_complete') {
           setResult(data.data)
           setIsSearching(false)
+          // 検索完了後にツール状態を更新
+          fetchToolStatus()
         } else if (data.event === 'error') {
           setError(data.message)
           setIsSearching(false)
@@ -99,13 +194,89 @@ export default function Home() {
           </p>
         </header>
 
+        {/* 認証状態表示 */}
+        {toolStatus && (
+          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              データソース接続状況
+            </h2>
+            <div className="grid md:grid-cols-2 gap-4">
+              {/* Google Drive */}
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className={`h-3 w-3 rounded-full ${
+                    toolStatus.google_drive.credentials_available 
+                      ? 'bg-green-500' 
+                      : 'bg-red-500'
+                  }`} />
+                  <div>
+                    <div className="font-medium">Google Drive</div>
+                    <div className="text-sm text-gray-600">
+                      {toolStatus.google_drive.credentials_available 
+                        ? '接続済み' 
+                        : '未接続'}
+                    </div>
+                  </div>
+                </div>
+                {toolStatus.google_drive.needs_authentication && (
+                  <button
+                    onClick={handleGoogleAuth}
+                    disabled={isAuthenticating}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {isAuthenticating ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        認証中...
+                      </>
+                    ) : (
+                      <>
+                        <Shield className="h-4 w-4" />
+                        接続
+                      </>
+                    )}
+                  </button>
+                )}
+                {toolStatus.google_drive.credentials_available && (
+                  <CheckCircle className="h-5 w-5 text-green-500" />
+                )}
+              </div>
+
+              {/* Chrome History */}
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className={`h-3 w-3 rounded-full ${
+                    toolStatus.chrome_history.cache_valid 
+                      ? 'bg-green-500' 
+                      : 'bg-yellow-500'
+                  }`} />
+                  <div>
+                    <div className="font-medium">Chrome History</div>
+                    <div className="text-sm text-gray-600">
+                      {toolStatus.chrome_history.cache_valid 
+                        ? `${toolStatus.chrome_history.cached_items}件のデータ` 
+                        : '拡張機能が必要'}
+                    </div>
+                  </div>
+                </div>
+                {toolStatus.chrome_history.cache_valid ? (
+                  <CheckCircle className="h-5 w-5 text-green-500" />
+                ) : (
+                  <AlertCircle className="h-5 w-5 text-yellow-500" />
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
           <div className="flex gap-4 mb-4">
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               placeholder="何について調べたいですか？（例：LLMの最新技術動向について）"
               className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               disabled={isSearching}

@@ -6,7 +6,8 @@
   "permissions": [
     "history",
     "storage",
-    "activeTab"
+    "alarms",
+    "idle"
   ],
   "background": {
     "service_worker": "background.js"
@@ -23,7 +24,8 @@
   },
   "host_permissions": [
     "http://localhost:8501/*",
-    "http://localhost:8000/*"
+    "http://localhost:8000/*",
+    "https://*.yourdomain.com/*"
   ],
   "web_accessible_resources": [
     {

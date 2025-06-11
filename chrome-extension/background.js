@@ -3,13 +3,22 @@
  * Provides secure Chrome history access via Chrome Extension API
  */
 
-// Native messaging connection for secure communication
-let nativePort = null;
-
 // Initialize extension
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Extend Your Memory extension installed');
+  initializeExtension();
 });
+
+chrome.runtime.onStartup.addListener(() => {
+  console.log('Extension started');
+  initializeExtension();
+});
+
+async function initializeExtension() {
+  await registerWithServer();
+  // Set up periodic sync
+  chrome.alarms.create('periodicSync', { periodInMinutes: 15 });
+}
 
 // Handle messages from content scripts or popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -21,6 +30,99 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 });
+
+// Server communication configuration
+const SERVER_URL = 'http://localhost:8501';
+let isRegistered = false;
+
+// Register extension with server on startup
+async function registerWithServer() {
+  try {
+    const response = await fetch(`${SERVER_URL}/api/chrome/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        extension_id: chrome.runtime.id,
+        version: chrome.runtime.getManifest().version,
+        capabilities: ['history_search', 'recent_history']
+      })
+    });
+    
+    if (response.ok) {
+      const result = await response.json();
+      console.log('Successfully registered with server:', result);
+      isRegistered = true;
+      
+      // Send initial history data
+      await sendHistoryToServer();
+    } else {
+      console.error('Failed to register with server:', response.status);
+    }
+  } catch (error) {
+    console.error('Error registering with server:', error);
+  }
+}
+
+// Send history data to server
+async function sendHistoryToServer(keywords = [], maxResults = 200) {
+  try {
+    if (!isRegistered) {
+      console.log('Not registered with server, skipping history sync');
+      return;
+    }
+    
+    // Get comprehensive history - last 30 days
+    const historyItems = await chrome.history.search({
+      text: '',
+      maxResults: maxResults,
+      startTime: Date.now() - (30 * 24 * 60 * 60 * 1000) // Last 30 days
+    });
+    
+    console.log(`Fetched ${historyItems.length} history items from Chrome`);
+    
+    // Basic history items - all keyword generation will be done by LLM on server
+    const enhancedItems = historyItems.map(item => ({
+      url: item.url,
+      title: item.title || 'Untitled',
+      lastVisitTime: item.lastVisitTime,
+      visitCount: item.visitCount || 1,
+      typedCount: item.typedCount || 0,
+      // Extract domain for basic metadata only
+      domain: new URL(item.url).hostname
+    }));
+    
+    // Send to server
+    const response = await fetch(`${SERVER_URL}/api/chrome/history`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        history_items: enhancedItems,
+        client_id: chrome.runtime.id,
+        timestamp: Date.now(),
+        total_items: enhancedItems.length,
+        sync_type: 'full_sync'
+      })
+    });
+    
+    if (response.ok) {
+      const result = await response.json();
+      console.log(`✓ History data sent to server: ${enhancedItems.length} items`);
+      console.log('Server response:', result);
+    } else {
+      const errorText = await response.text();
+      console.error(`✗ Failed to send history to server: ${response.status} - ${errorText}`);
+    }
+  } catch (error) {
+    console.error('✗ Error sending history to server:', error);
+  }
+}
+
+// Note: All keyword extraction and categorization is now handled by LLM on the server
+// Chrome Extension only provides raw history data
 
 // Handle external messages from MCP server
 chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => {
@@ -37,6 +139,11 @@ chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => 
     return true;
   } else if (request.action === 'getRecentHistory') {
     handleRecentHistory(request.params, sendResponse);
+    return true;
+  } else if (request.action === 'refreshHistory') {
+    sendHistoryToServer().then(() => {
+      sendResponse({success: true, message: 'History refreshed'});
+    });
     return true;
   }
 });
@@ -175,18 +282,6 @@ async function handleRecentHistory(params, sendResponse) {
   }
 }
 
-/**
- * Get detailed visit information for a specific URL
- */
-async function getVisitDetails(url) {
-  try {
-    const visits = await chrome.history.getVisits({url: url});
-    return visits;
-  } catch (error) {
-    console.error('Error getting visit details:', error);
-    return [];
-  }
-}
 
 // Handle extension icon click
 chrome.action.onClicked.addListener((tab) => {
@@ -196,13 +291,51 @@ chrome.action.onClicked.addListener((tab) => {
   });
 });
 
-// Listen for history changes to potentially update our data
+// Listen for history changes to update server data
 chrome.history.onVisited.addListener((historyItem) => {
   console.log('New page visited:', historyItem.url);
-  // Could potentially notify our MCP server about new visits
+  checkAndSync();
 });
+
+async function checkAndSync() {
+  const result = await chrome.storage.local.get(['lastSyncTime']);
+  const lastSync = result.lastSyncTime || 0;
+  const now = Date.now();
+  if (now - lastSync > 5 * 60 * 1000) { // 5 minutes
+    sendHistoryToServer();
+    chrome.storage.local.set({ lastSyncTime: now });
+  }
+}
 
 chrome.history.onVisitRemoved.addListener((removed) => {
   console.log('History removed:', removed);
-  // Could potentially update our cached data
+  // Trigger sync when history is removed to keep server updated
+  if (isRegistered && removed.allHistory) {
+    console.log('Full history cleared, triggering full sync');
+    setTimeout(() => sendHistoryToServer(), 5000); // Wait 5 seconds then sync
+  }
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'periodicSync') {
+    console.log('Periodic sync triggered');
+    sendHistoryToServer();
+  }
+});
+
+// Sync when user becomes active after idle period
+chrome.idle.onStateChanged.addListener((newState) => {
+  if (newState === 'active' && isRegistered) {
+    console.log('User became active, checking for history sync');
+    // Only sync if we haven't synced in the last 10 minutes
+    chrome.storage.local.get(['lastSyncTime'], (result) => {
+      const lastSync = result.lastSyncTime || 0;
+      const now = Date.now();
+      if (now - lastSync > 10 * 60 * 1000) { // 10 minutes
+        console.log('Triggering sync due to user activity');
+        sendHistoryToServer();
+        chrome.storage.local.set({ lastSyncTime: now });
+      }
+    });
+  }
 });

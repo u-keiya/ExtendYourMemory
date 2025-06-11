@@ -1,0 +1,17 @@
+{
+  "excluded_folders": [
+    {
+      "id": "1w6FGyVwosYsCo7ztJLyuCtbyXT66ndxz",
+      "name": "output",
+      "description": "Personal photos that should not be searched",
+      "enabled": true
+    }
+  ],
+  "settings": {
+    "auto_exclude_enabled": true,
+    "cache_duration_hours": 24,
+    "max_excluded_folders": 50
+  },
+  "last_updated": "2024-01-01T00:00:00Z",
+  "version": "1.0"
+}

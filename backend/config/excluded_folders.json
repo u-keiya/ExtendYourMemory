@@ -1,0 +1,10 @@
+{
+  "excluded_folders": [],
+  "settings": {
+    "auto_exclude_enabled": true,
+    "cache_duration_hours": 24,
+    "max_excluded_folders": 50
+  },
+  "last_updated": "2025-06-10T12:28:52.335886",
+  "version": "1.0"
+}

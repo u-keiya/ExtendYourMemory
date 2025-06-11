@@ -3,9 +3,6 @@
  */
 
 document.addEventListener('DOMContentLoaded', function() {
-  // Initialize popup
-  initializePopup();
-  
   // Check service status
   checkServiceStatus();
   
@@ -13,52 +10,26 @@ document.addEventListener('DOMContentLoaded', function() {
   setupEventListeners();
 });
 
-function initializePopup() {
-  console.log('Popup initialized');
+async function checkServiceStatus() {
+  const services = [
+    { id: 'mcp-status', url: 'http://localhost:8501/health' },
+    { id: 'backend-status', url: 'http://localhost:8000/health' }
+  ];
+  
+  for (const service of services) {
+    try {
+      const response = await fetch(service.url, { method: 'GET', mode: 'cors' });
+      updateServiceStatus(service.id, response.ok ? 'Connected' : 'Error');
+    } catch (error) {
+      updateServiceStatus(service.id, 'Offline');
+    }
+  }
 }
 
-async function checkServiceStatus() {
-  // Check MCP Server
-  try {
-    const mcpResponse = await fetch('http://localhost:8501/health', {
-      method: 'GET',
-      mode: 'cors'
-    });
-    
-    const mcpStatus = document.getElementById('mcp-status');
-    if (mcpResponse.ok) {
-      mcpStatus.textContent = 'Connected';
-      mcpStatus.className = 'status-value connected';
-    } else {
-      mcpStatus.textContent = 'Error';
-      mcpStatus.className = 'status-value disconnected';
-    }
-  } catch (error) {
-    const mcpStatus = document.getElementById('mcp-status');
-    mcpStatus.textContent = 'Offline';
-    mcpStatus.className = 'status-value disconnected';
-  }
-  
-  // Check Backend API
-  try {
-    const backendResponse = await fetch('http://localhost:8000/health', {
-      method: 'GET',
-      mode: 'cors'
-    });
-    
-    const backendStatus = document.getElementById('backend-status');
-    if (backendResponse.ok) {
-      backendStatus.textContent = 'Connected';
-      backendStatus.className = 'status-value connected';
-    } else {
-      backendStatus.textContent = 'Error';
-      backendStatus.className = 'status-value disconnected';
-    }
-  } catch (error) {
-    const backendStatus = document.getElementById('backend-status');
-    backendStatus.textContent = 'Offline';
-    backendStatus.className = 'status-value disconnected';
-  }
+function updateServiceStatus(elementId, status) {
+  const element = document.getElementById(elementId);
+  element.textContent = status;
+  element.className = `status-value ${status.toLowerCase() === 'connected' ? 'connected' : 'disconnected'}`;
 }
 
 function setupEventListeners() {

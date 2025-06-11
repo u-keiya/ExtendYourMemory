@@ -27,8 +27,8 @@ docker compose up --build
 
 # Or start individual services:
 
-# MCP Server
-cd mcp-server && python server.py
+# MCP Server  
+cd mcp-server && python server_fastapi.py
 
 # Backend API
 cd backend && uvicorn main:app --reload
@@ -40,8 +40,9 @@ cd frontend && npm run dev
 ### 4. Testing
 
 ```bash
-# Run end-to-end tests
-python test_setup.py
+# Test individual components manually
+curl http://localhost:8501/health  # MCP Server
+curl http://localhost:8000/health  # Backend API
 ```
 
 ### 5. Access the Application
