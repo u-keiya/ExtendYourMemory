@@ -4,10 +4,17 @@ Implements query-complexity based optimization for vector search
 """
 
 import logging
+import time
+from enum import Enum
 from typing import Dict, Any, Optional, List
 from langchain.docstore.document import Document
 
 logger = logging.getLogger(__name__)
+
+class QueryComplexity(Enum):
+    SIMPLE = "simple"
+    MEDIUM = "medium"
+    COMPLEX = "complex"
 
 class AdaptiveFAISSOptimizer:
     def __init__(self):
@@ -23,7 +30,7 @@ class AdaptiveFAISSOptimizer:
                 return "IndexFlatL2"
             elif doc_count < 10000:
                 # 中規模: バランス型
-                if query_complexity in ["単純", "中程度"]:
+                if query_complexity in ["単純", "中程度", QueryComplexity.SIMPLE.value, QueryComplexity.MEDIUM.value]:
                     return "IndexIVFFlat"
                 else:
                     return "IndexFlatL2"  # 複雑なクエリには正確性を優先
@@ -335,7 +342,6 @@ class AdaptiveFAISSOptimizer:
     
     def _get_timestamp(self) -> float:
         """現在のタイムスタンプを取得"""
-        import time
         return time.time()
     
     def get_status(self) -> Dict[str, Any]:

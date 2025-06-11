@@ -4,6 +4,7 @@ Implements state-of-the-art query expansion and refinement techniques
 """
 
 import json
+import time
 import asyncio
 from typing import List, Dict, Any, Optional
 import logging
@@ -428,7 +429,7 @@ class LLMQueryGenerator:
                 'query': query,
                 'keywords': keywords,
                 'quality': result_quality,
-                'timestamp': asyncio.get_event_loop().time()
+                'timestamp': time.time()
             }
             
             self.search_history.append(success_record)
