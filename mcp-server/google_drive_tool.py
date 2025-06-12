@@ -32,7 +32,9 @@ class GoogleDriveTool:
         'sheet': 'application/vnd.google-apps.spreadsheet',
         'pdf': 'application/pdf',
         'presentation': 'application/vnd.google-apps.presentation',
-        'markdown': 'text/markdown',
+        # Markdown ファイルはGoogle Drive上では text/plain として扱われる場合
+        # もあるため、複数の候補を保持しておく
+        'markdown': ['text/markdown', 'text/plain', 'text/x-markdown'],
         'text': 'text/plain'
     }
     
@@ -255,12 +257,21 @@ class GoogleDriveTool:
             # ファイルタイプ制限
             if file_types:
                 mime_conditions = []
-                for file_type in file_types:
-                    if file_type.lower() in self.MIME_TYPE_MAP:
-                        mime_conditions.append(f"mimeType='{self.MIME_TYPE_MAP[file_type.lower()]}'")
-                
+                lower_types = [ft.lower() for ft in file_types]
+                for file_type in lower_types:
+                    if file_type in self.MIME_TYPE_MAP:
+                        mime_value = self.MIME_TYPE_MAP[file_type]
+                        if isinstance(mime_value, list):
+                            mime_conditions.extend([f"mimeType='{v}'" for v in mime_value])
+                        else:
+                            mime_conditions.append(f"mimeType='{mime_value}'")
+
                 if mime_conditions:
                     query_parts.append(f"({' or '.join(mime_conditions)})")
+
+                # Markdown ファイルタイプでは拡張子フィルタも追加
+                if 'markdown' in lower_types:
+                    query_parts.append("name contains '.md'")
             
             # トラッシュを除外
             query_parts.append("trashed=false")
@@ -321,12 +332,20 @@ class GoogleDriveTool:
                 # ファイルタイプ指定
                 if file_types:
                     mime_conditions = []
-                    for file_type in file_types:
-                        if file_type.lower() in self.MIME_TYPE_MAP:
-                            mime_conditions.append(f"mimeType='{self.MIME_TYPE_MAP[file_type.lower()]}'")
-                    
+                    lower_types = [ft.lower() for ft in file_types]
+                    for file_type in lower_types:
+                        if file_type in self.MIME_TYPE_MAP:
+                            mime_value = self.MIME_TYPE_MAP[file_type]
+                            if isinstance(mime_value, list):
+                                mime_conditions.extend([f"mimeType='{v}'" for v in mime_value])
+                            else:
+                                mime_conditions.append(f"mimeType='{mime_value}'")
+
                     if mime_conditions:
                         query_parts.append(f"({' or '.join(mime_conditions)})")
+
+                    if 'markdown' in lower_types:
+                        query_parts.append("name contains '.md'")
                 
                 # トラッシュを除外
                 query_parts.append("trashed=false")
