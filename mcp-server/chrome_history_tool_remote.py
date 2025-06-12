@@ -172,16 +172,34 @@ class RemoteChromeHistoryTool:
     ) -> None:
         """Signal Chrome Extension to send fresh history data"""
         try:
-            # In a real implementation, this would send a message to the Chrome Extension
-            # through WebSocket or similar mechanism to request fresh data
-            logger.info(f"Requesting fresh history data for keywords: {keywords}")
-            
-            # For now, this is a placeholder - the Extension should periodically
-            # send fresh data or respond to page refresh events
-            pass
-            
+            logger.info(
+                "Requesting fresh history data from Chrome extension for keywords: %s",
+                keywords,
+            )
+
+            payload = {
+                "action": "refreshHistory",
+                "params": {
+                    "keywords": keywords,
+                    "days": days,
+                    "maxResults": max_results,
+                },
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.server_url}/api/chrome/extension", json=payload, timeout=5.0
+                )
+                if response.status_code != 200:
+                    logger.warning(
+                        "Chrome extension refresh request returned status %s",
+                        response.status_code,
+                    )
+                else:
+                    logger.info("Chrome extension refresh triggered successfully")
+
         except Exception as e:
-            logger.error(f"Failed to request history from extension: {e}")
+            logger.error("Failed to request history from extension: %s", e)
     
     def _search_cached_history(
         self,
