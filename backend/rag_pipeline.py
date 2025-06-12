@@ -133,7 +133,7 @@ class RAGPipeline:
                         }
                         gdrive_request = {
                             "hierarchical_keywords": clean_hierarchical,
-                            "file_types": ["document", "sheet", "pdf"],
+                            "file_types": ["document", "sheet", "pdf", "markdown"],
                             "max_results": 100
                         }
                         logger.info(f"Using hierarchical keywords for Google Drive search")
@@ -142,7 +142,7 @@ class RAGPipeline:
                         # 従来のキーワード検索
                         gdrive_request = {
                             "keywords": keywords,
-                            "file_types": ["document", "sheet", "pdf"],
+                            "file_types": ["document", "sheet", "pdf", "markdown"],
                             "max_results": 100
                         }
                         logger.info(f"Using simple keywords for Google Drive search: {keywords[:3]}...")
