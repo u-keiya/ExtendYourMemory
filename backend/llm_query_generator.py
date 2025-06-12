@@ -52,7 +52,9 @@ class LLMQueryGenerator:
             )
             
             content = self._parse_json_response(response.content)
-            analysis = json.loads(content)
+            analysis = self._robust_json_parse(content)
+            if analysis is None:
+                raise Exception("Failed to parse query analysis JSON")
             
             logger.info(f"Query analysis: {analysis.get('intent')} / {analysis.get('complexity')} / {analysis.get('search_strategy')}")
             return analysis
@@ -129,7 +131,13 @@ class LLMQueryGenerator:
             )
             
             content = self._parse_json_response(response.content)
-            result = json.loads(content)
+            logger.info(f"LLM response for hierarchical keywords: {content[:200]}...")
+            
+            # 複数の解析方法を試行
+            result = self._robust_json_parse(content)
+            if result is None:
+                logger.warning("JSON parsing failed, falling back to alternative methods")
+                raise Exception("All JSON parsing methods failed")
             
             # キーワード統計をログ出力
             total_keywords = (len(result.get('primary_keywords', [])) + 
@@ -231,7 +239,9 @@ class LLMQueryGenerator:
             )
             
             content = self._parse_json_response(response.content)
-            result = json.loads(content)
+            result = self._robust_json_parse(content)
+            if result is None:
+                raise Exception("Failed to parse multi-perspective queries JSON")
             all_queries = result.get("all_queries", [])
             
             # クエリ多様性のログ
@@ -298,7 +308,9 @@ class LLMQueryGenerator:
             )
             
             content = self._parse_json_response(response.content)
-            result = json.loads(content)
+            result = self._robust_json_parse(content)
+            if result is None:
+                raise Exception("Failed to parse query refinement JSON")
             refined_queries = result.get("all_queries", [])
             
             logger.info(f"Refined {len(refined_queries)} queries based on initial results")
@@ -349,15 +361,123 @@ class LLMQueryGenerator:
             }
 
     def _parse_json_response(self, content: str) -> str:
-        """JSONレスポンスのパース処理を統一"""
+        """JSONレスポンスのパース処理を統一（堅牢化版）"""
+        import re
+        
         content = content.strip()
+        
+        # マークダウンコードブロックの除去（複数パターン対応）
+        # ```json または ``` で始まる場合
         if content.startswith("```json"):
             content = content[7:]
         elif content.startswith("```"):
             content = content[3:]
+        
+        # ``` で終わる場合
         if content.endswith("```"):
             content = content[:-3]
+        
+        content = content.strip()
+        
+        # JSONオブジェクトの抽出（複数のJSONが含まれる場合の対策）
+        # 最初の { から最後の } までを抽出
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            content = json_match.group(0)
+        
+        # 末尾のカンマを除去（よくあるJSONエラー）
+        content = re.sub(r',(\s*[}\]])', r'\1', content)
+        
+        # 不正な改行や余分な空白の正規化
+        content = re.sub(r'\s+', ' ', content)
+        content = re.sub(r',\s*}', '}', content)
+        content = re.sub(r',\s*]', ']', content)
+        
         return content.strip()
+
+    def _robust_json_parse(self, content: str) -> Optional[Dict[str, Any]]:
+        """堅牢なJSON解析（複数の方法を試行）"""
+        import ast
+        
+        # 方法1: 標準のjson.loads
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.debug(f"Standard JSON parsing failed: {e}")
+        
+        # 方法2: 単一引用符を二重引用符に変換して再試行
+        try:
+            # 単一引用符を二重引用符に変換（文字列内の引用符は除く）
+            fixed_content = content.replace("'", '"')
+            return json.loads(fixed_content)
+        except json.JSONDecodeError as e:
+            logger.debug(f"Quote-fixed JSON parsing failed: {e}")
+        
+        # 方法3: eval（セキュリティに注意）- Pythonの辞書形式の場合
+        try:
+            # eval は危険だが、限定的な文字列のみ許可
+            if content.strip().startswith('{') and content.strip().endswith('}'):
+                result = ast.literal_eval(content)
+                if isinstance(result, dict):
+                    return result
+        except (ValueError, SyntaxError) as e:
+            logger.debug(f"AST literal_eval parsing failed: {e}")
+        
+        # 方法4: 正規表現による部分抽出
+        try:
+            import re
+            
+            # 各フィールドを個別に抽出
+            result = {}
+            
+            # primary_keywords を抽出
+            primary_match = re.search(r'"primary_keywords":\s*\[(.*?)\]', content, re.DOTALL)
+            if primary_match:
+                keywords_str = primary_match.group(1)
+                keywords = [k.strip(' "\'') for k in keywords_str.split(',') if k.strip()]
+                result['primary_keywords'] = keywords
+            
+            # secondary_keywords を抽出
+            secondary_match = re.search(r'"secondary_keywords":\s*\[(.*?)\]', content, re.DOTALL)
+            if secondary_match:
+                keywords_str = secondary_match.group(1)
+                keywords = [k.strip(' "\'') for k in keywords_str.split(',') if k.strip()]
+                result['secondary_keywords'] = keywords
+            
+            # context_keywords を抽出
+            context_match = re.search(r'"context_keywords":\s*\[(.*?)\]', content, re.DOTALL)
+            if context_match:
+                keywords_str = context_match.group(1)
+                keywords = [k.strip(' "\'') for k in keywords_str.split(',') if k.strip()]
+                result['context_keywords'] = keywords
+            
+            # negative_keywords を抽出
+            negative_match = re.search(r'"negative_keywords":\s*\[(.*?)\]', content, re.DOTALL)
+            if negative_match:
+                keywords_str = negative_match.group(1)
+                keywords = [k.strip(' "\'') for k in keywords_str.split(',') if k.strip()]
+                result['negative_keywords'] = keywords
+            
+            # search_confidence を抽出
+            confidence_match = re.search(r'"search_confidence":\s*([\d.]+)', content)
+            if confidence_match:
+                result['search_confidence'] = float(confidence_match.group(1))
+            
+            # strategy_used を抽出
+            strategy_match = re.search(r'"strategy_used":\s*"([^"]+)"', content)
+            if strategy_match:
+                result['strategy_used'] = strategy_match.group(1)
+            
+            if result:  # 何らかのフィールドが抽出できた場合
+                logger.info("Successfully parsed JSON using regex fallback")
+                return result
+                
+        except Exception as e:
+            logger.debug(f"Regex parsing failed: {e}")
+        
+        # すべての方法が失敗
+        logger.error(f"All JSON parsing methods failed for content: {content[:100]}...")
+        return None
 
     async def _fallback_keyword_generation(self, user_query: str) -> Dict[str, Any]:
         """フォールバック用のシンプルなキーワード生成"""
@@ -377,7 +497,11 @@ class LLMQueryGenerator:
             )
             
             content = self._parse_json_response(response.content)
-            result = json.loads(content)
+            result = self._robust_json_parse(content)
+            if result is None:
+                # 最後のフォールバック：クエリから単純に分割
+                keywords = user_query.split()[:5]
+                result = {'all_keywords': keywords}
             
             return {
                 'all_keywords': result.get('all_keywords', [user_query]),

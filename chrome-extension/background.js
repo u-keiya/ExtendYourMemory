@@ -66,7 +66,7 @@ async function registerWithServer() {
 }
 
 // Send history data to server
-async function sendHistoryToServer(keywords = [], maxResults = 200) {
+async function sendHistoryToServer(keywords = [], maxResults = 1000) {
   try {
     if (!isRegistered) {
       console.log('Not registered with server, skipping history sync');

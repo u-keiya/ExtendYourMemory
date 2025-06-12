@@ -4,7 +4,6 @@ Mistral OCR MCP Tool Implementation
 
 import os
 import base64
-import asyncio
 from typing import Optional
 from mistralai import Mistral
 import logging
@@ -26,10 +25,10 @@ class MistralOCRTool:
                 logger.info("Mistral OCR client initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize Mistral client: {e}")
-                logger.info("Mistral OCR tool will use mock responses")
+                logger.warning("Mistral OCR functionality will be unavailable")
         else:
             logger.warning("MISTRAL_API_KEY not found in environment variables")
-            logger.info("Mistral OCR tool will use mock responses")
+            logger.warning("Mistral OCR functionality will be unavailable")
     
     async def process_pdf_to_markdown(
         self,
@@ -40,7 +39,8 @@ class MistralOCRTool:
         """PDFファイルをMistral OCRでMarkdown変換"""
         
         if not self.client:
-            return await self._mock_ocr_result(file_name, len(file_content))
+            logger.error("Mistral OCR client not available - API key required")
+            raise RuntimeError("Mistral OCR service unavailable: MISTRAL_API_KEY not configured")
         
         try:
             # ファイルサイズチェック（50MB制限）
@@ -71,11 +71,11 @@ class MistralOCRTool:
             
             else:
                 logger.error(f"Invalid response from Mistral OCR API for {file_name}")
-                return await self._mock_ocr_result(file_name, len(file_content))
+                raise RuntimeError(f"Invalid response from Mistral OCR API for {file_name}")
                 
         except Exception as e:
             logger.error(f"Error processing PDF {file_name} with Mistral OCR: {e}")
-            return await self._mock_ocr_result(file_name, len(file_content))
+            raise RuntimeError(f"Failed to process PDF with Mistral OCR: {e}")
     
     def _process_with_mistral_api(self, file_base64: str, file_name: str) -> dict:
         """Mistral OCR APIを同期的に呼び出し"""
@@ -106,7 +106,8 @@ class MistralOCRTool:
         """画像ファイルをMistral OCRでMarkdown変換"""
         
         if not self.client:
-            return await self._mock_ocr_result(image_name, len(image_content))
+            logger.error("Mistral OCR client not available - API key required")
+            raise RuntimeError("Mistral OCR service unavailable: MISTRAL_API_KEY not configured")
         
         try:
             # ファイルサイズチェック
@@ -136,11 +137,11 @@ class MistralOCRTool:
                 return markdown_content
             else:
                 logger.error(f"Invalid response from Mistral OCR API for image {image_name}")
-                return await self._mock_ocr_result(image_name, len(image_content))
+                raise RuntimeError(f"Invalid response from Mistral OCR API for image {image_name}")
                 
         except Exception as e:
             logger.error(f"Error processing image {image_name} with Mistral OCR: {e}")
-            return await self._mock_ocr_result(image_name, len(image_content))
+            raise RuntimeError(f"Failed to process image with Mistral OCR: {e}")
     
     def _process_image_with_mistral_api(self, image_base64: str, image_name: str, image_type: str) -> dict:
         """画像をMistral OCR APIで処理"""
@@ -176,45 +177,6 @@ class MistralOCRTool:
         else:
             return None
     
-    async def _mock_ocr_result(self, file_name: str, file_size: int) -> str:
-        """モックOCR結果（APIが利用できない場合）"""
-        logger.info(f"Using mock OCR result for {file_name}")
-        
-        mock_markdown = f"""# {file_name}
-
-*このファイルはMistral OCR APIを使用して処理されました（モック）*
-
-## ドキュメント情報
-- ファイル名: {file_name}
-- ファイルサイズ: {file_size:,} bytes
-- 処理日時: {asyncio.get_event_loop().time()}
-
-## 抽出されたコンテンツ
-
-### セクション 1: 概要
-このドキュメントには重要な情報が含まれています。実際のOCR処理では、PDFや画像から正確にテキストが抽出されます。
-
-### セクション 2: 詳細内容
-- **項目1**: 技術仕様や設計文書
-- **項目2**: 研究論文や学術資料  
-- **項目3**: 業務文書や報告書
-
-### セクション 3: 表とデータ
-| 項目 | 値 | 備考 |
-|------|----|----- |
-| 精度 | 95%+ | 高精度OCR |
-| 速度 | 高速 | リアルタイム処理 |
-| 対応形式 | PDF, PNG, JPEG | 多形式対応 |
-
-### セクション 4: 結論
-Mistral OCRは高精度でマークダウン形式での出力が可能です。
-
----
-
-*注意: これはモック結果です。実際の使用には MISTRAL_API_KEY の設定が必要です。*
-"""
-        
-        return mock_markdown
     
     async def check_api_status(self) -> dict:
         """API接続状態をチェック"""

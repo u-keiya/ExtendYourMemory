@@ -150,12 +150,12 @@ class RemoteChromeHistoryTool:
                 logger.warning("Using stale cached Chrome history data")
                 return self._search_cached_history(keywords, days, max_results)
             else:
-                logger.warning("No Chrome history data available, using mock data")
-                return await self._mock_search_results(keywords)
+                logger.warning("No Chrome history data available")
+                return []
                 
         except Exception as e:
             logger.error(f"Error requesting history from extension: {e}")
-            return await self._mock_search_results(keywords)
+            return []
     
     def _is_cache_valid(self) -> bool:
         """Check if cached data is still valid"""

@@ -34,7 +34,7 @@ class RAGPipeline:
         google_api_key = os.getenv("GOOGLE_API_KEY")
         
         if not google_api_key:
-            logger.warning("GOOGLE_API_KEY not found. RAG pipeline will use mock responses.")
+            logger.warning("GOOGLE_API_KEY not found. RAG pipeline functionality will be limited.")
             return
         
         try:
@@ -59,7 +59,7 @@ class RAGPipeline:
             
         except Exception as e:
             logger.error(f"Failed to initialize RAG models: {e}")
-            logger.info("RAG pipeline will use mock responses")
+            logger.warning("RAG pipeline functionality will be limited without proper API configuration")
     
     async def generate_keywords(self, user_query: str) -> List[str]:
         """ユーザークエリから検索キーワードを生成（後方互換性のため）"""
@@ -125,12 +125,19 @@ class RAGPipeline:
                 try:
                     if hierarchical_keywords:
                         # 階層的キーワードを使用した最適化検索
+                        actual_hierarchical = hierarchical_keywords.get('hierarchical', {})
+                        # MCPサーバーが期待する形式に合わせて、余分なフィールドを除去
+                        clean_hierarchical = {
+                            key: value for key, value in actual_hierarchical.items()
+                            if key in ['primary_keywords', 'secondary_keywords', 'context_keywords', 'negative_keywords']
+                        }
                         gdrive_request = {
-                            "hierarchical_keywords": hierarchical_keywords.get('hierarchical', {}),
+                            "hierarchical_keywords": clean_hierarchical,
                             "file_types": ["document", "sheet", "pdf"],
                             "max_results": 100
                         }
                         logger.info(f"Using hierarchical keywords for Google Drive search")
+                        logger.info(f"Sending clean hierarchical_keywords: {clean_hierarchical}")
                     else:
                         # 従来のキーワード検索
                         gdrive_request = {

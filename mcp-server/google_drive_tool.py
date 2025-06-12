@@ -26,6 +26,16 @@ except ImportError:
     logger.warning("LangChain Google Drive loader not available")
 
 class GoogleDriveTool:
+    # ファイルタイプマッピング（クラス定数）
+    MIME_TYPE_MAP = {
+        'document': 'application/vnd.google-apps.document',
+        'sheet': 'application/vnd.google-apps.spreadsheet',
+        'pdf': 'application/pdf',
+        'presentation': 'application/vnd.google-apps.presentation',
+        'markdown': 'text/markdown',
+        'text': 'text/plain'
+    }
+    
     def __init__(self):
         self.service = None
         self.credentials = None
@@ -244,17 +254,10 @@ class GoogleDriveTool:
             
             # ファイルタイプ制限
             if file_types:
-                mime_type_map = {
-                    'document': 'application/vnd.google-apps.document',
-                    'sheet': 'application/vnd.google-apps.spreadsheet',
-                    'pdf': 'application/pdf',
-                    'presentation': 'application/vnd.google-apps.presentation'
-                }
-                
                 mime_conditions = []
                 for file_type in file_types:
-                    if file_type.lower() in mime_type_map:
-                        mime_conditions.append(f"mimeType='{mime_type_map[file_type.lower()]}'")
+                    if file_type.lower() in self.MIME_TYPE_MAP:
+                        mime_conditions.append(f"mimeType='{self.MIME_TYPE_MAP[file_type.lower()]}'")
                 
                 if mime_conditions:
                     query_parts.append(f"({' or '.join(mime_conditions)})")
@@ -317,17 +320,10 @@ class GoogleDriveTool:
                 
                 # ファイルタイプ指定
                 if file_types:
-                    mime_type_map = {
-                        'document': 'application/vnd.google-apps.document',
-                        'sheet': 'application/vnd.google-apps.spreadsheet',
-                        'pdf': 'application/pdf',
-                        'presentation': 'application/vnd.google-apps.presentation'
-                    }
-                    
                     mime_conditions = []
                     for file_type in file_types:
-                        if file_type.lower() in mime_type_map:
-                            mime_conditions.append(f"mimeType='{mime_type_map[file_type.lower()]}'")
+                        if file_type.lower() in self.MIME_TYPE_MAP:
+                            mime_conditions.append(f"mimeType='{self.MIME_TYPE_MAP[file_type.lower()]}'")
                     
                     if mime_conditions:
                         query_parts.append(f"({' or '.join(mime_conditions)})")

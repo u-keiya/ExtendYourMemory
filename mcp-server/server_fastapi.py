@@ -57,7 +57,8 @@ web_fetch_tool = WebFetchTool()
 
 # Pydantic モデル
 class SearchGoogleDriveRequest(BaseModel):
-    keywords: List[str]
+    keywords: Optional[List[str]] = None  # 従来のキーワード（オプション）
+    hierarchical_keywords: Optional[Dict[str, List[str]]] = None  # 階層的キーワード（正しい型定義）
     file_types: Optional[List[str]] = None
     folder_id: Optional[str] = "root"
     max_results: int = 50
@@ -209,17 +210,39 @@ async def register_chrome_extension(request: Request):
 
 @app.post("/tools/search_google_drive")
 async def search_google_drive(request: SearchGoogleDriveRequest):
-    """Google Driveからキーワードに基づいてファイルを検索"""
+    """Google Driveからキーワードに基づいてファイルを検索（階層的キーワード対応）"""
     try:
-        logger.info(f"Google Drive search: keywords={request.keywords}")
+        # 階層的キーワードまたは従来のキーワードをログ出力
+        if request.hierarchical_keywords:
+            logger.info(f"Google Drive search with hierarchical keywords: {len(request.hierarchical_keywords)} categories")
+            for category, keywords in request.hierarchical_keywords.items():
+                logger.info(f"  {category}: {keywords[:3]}{'...' if len(keywords) > 3 else ''}")
+        else:
+            logger.info(f"Google Drive search: keywords={request.keywords}")
         
-        documents = await google_drive_tool.search_files(
-            keywords=request.keywords,
-            file_types=request.file_types,
-            folder_id=request.folder_id,
-            max_results=request.max_results,
-            excluded_folder_ids=request.excluded_folder_ids
-        )
+        # 適切な検索メソッドを選択
+        if request.hierarchical_keywords:
+            # 階層的キーワード検索
+            documents = await google_drive_tool.search_files(
+                keywords=request.keywords or [],  # 空リストをデフォルト
+                file_types=request.file_types,
+                folder_id=request.folder_id,
+                max_results=request.max_results,
+                excluded_folder_ids=request.excluded_folder_ids,
+                hierarchical_keywords=request.hierarchical_keywords
+            )
+        else:
+            # 従来の検索
+            if not request.keywords:
+                raise HTTPException(status_code=400, detail="Either keywords or hierarchical_keywords must be provided")
+            
+            documents = await google_drive_tool.search_files(
+                keywords=request.keywords,
+                file_types=request.file_types,
+                folder_id=request.folder_id,
+                max_results=request.max_results,
+                excluded_folder_ids=request.excluded_folder_ids
+            )
         
         logger.info(f"Found {len(documents)} documents in Google Drive")
         return documents
