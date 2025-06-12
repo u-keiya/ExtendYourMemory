@@ -4,6 +4,7 @@ Mistral OCR MCP Tool Implementation
 
 import os
 import base64
+import asyncio
 from typing import Optional
 from mistralai import Mistral
 import logging
