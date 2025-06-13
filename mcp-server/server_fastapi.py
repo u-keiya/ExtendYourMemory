@@ -181,6 +181,23 @@ async def get_recent_chrome_history_endpoint(
         logger.error(f"Error getting recent Chrome history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+class ExtensionCommand(BaseModel):
+    """Command request for the Chrome extension"""
+    action: str
+    params: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/chrome/extension")
+async def chrome_extension_command(command: ExtensionCommand):
+    """Handle requests directed to the Chrome extension"""
+    try:
+        logger.info(f"Extension command: {command.action}")
+        # Placeholder implementation - extension polls this endpoint
+        return {"success": True, "received": command.action}
+    except Exception as e:
+        logger.error(f"Error processing extension command: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/chrome/register")
 async def register_chrome_extension(request: Request):
     """Chrome Extension の登録エンドポイント"""

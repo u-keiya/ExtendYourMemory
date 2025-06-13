@@ -52,6 +52,17 @@ curl http://localhost:8000/health  # Backend API
 - **API Docs**: http://localhost:8000/docs
 - **MCP Server**: http://localhost:8501
 
+### Chrome Extension Remote Usage
+
+1. Set the MCP server URL inside the extension. In the browser console run:
+
+```javascript
+chrome.storage.local.set({ serverUrl: 'https://your-server.example' });
+```
+
+2. Reload the extension. When using a remote HTTPS server, ensure the server
+   certificate is valid and that CORS is configured to allow the extension origin.
+
 ## 🏗️ Architecture
 
 - **Frontend**: Next.js 14 with TypeScript and Tailwind CSS

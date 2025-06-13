@@ -128,6 +128,16 @@ export default function Home() {
     setResult(null)
     setError(null)
 
+    // Ask Chrome extension to send latest history to the server if available
+    try {
+      const bridge: any = (window as any).ExtendYourMemoryBridge
+      if (bridge && bridge.isExtensionAvailable()) {
+        await bridge.refreshHistory().catch(() => {})
+      }
+    } catch (e) {
+      console.debug('Extension refresh failed', e)
+    }
+
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
       const wsUrl = apiUrl.replace('http', 'ws') + '/ws/search'
