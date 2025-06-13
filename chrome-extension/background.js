@@ -28,17 +28,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request.action === 'getRecentHistory') {
     handleRecentHistory(request.params, sendResponse);
     return true;
+  } else if (request.action === 'refreshHistory') {
+    sendHistoryToServer().then(() => {
+      sendResponse({success: true, message: 'History refreshed'});
+    });
+    return true;
   }
 });
 
 // Server communication configuration
-const SERVER_URL = 'http://localhost:8501';
+// Default URL can be overridden by environment variable or chrome.storage
+const DEFAULT_SERVER_URL =
+  typeof process !== 'undefined' && process.env && process.env.SERVER_URL
+    ? process.env.SERVER_URL
+    : 'http://localhost:8501';
+
 let isRegistered = false;
+
+async function getServerUrl() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['serverUrl'], (result) => {
+      if (result.serverUrl) {
+        resolve(result.serverUrl);
+      } else {
+        resolve(DEFAULT_SERVER_URL);
+      }
+    });
+  });
+}
 
 // Register extension with server on startup
 async function registerWithServer() {
   try {
-    const response = await fetch(`${SERVER_URL}/api/chrome/register`, {
+    const serverUrl = await getServerUrl();
+    const response = await fetch(`${serverUrl}/api/chrome/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -94,7 +117,8 @@ async function sendHistoryToServer(keywords = [], maxResults = 1000) {
     }));
     
     // Send to server
-    const response = await fetch(`${SERVER_URL}/api/chrome/history`, {
+    const serverUrl = await getServerUrl();
+    const response = await fetch(`${serverUrl}/api/chrome/history`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -125,9 +149,15 @@ async function sendHistoryToServer(keywords = [], maxResults = 1000) {
 // Chrome Extension only provides raw history data
 
 // Handle external messages from MCP server
-chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => {
+chrome.runtime.onMessageExternal.addListener(async (request, sender, sendResponse) => {
+  const serverUrl = await getServerUrl();
   // Verify sender is from our allowed origins
-  const allowedOrigins = ['http://localhost:8501', 'http://localhost:8000'];
+  const allowedOrigins = [
+    serverUrl,
+    serverUrl.replace('http://', 'https://'),
+    'http://localhost:8501',
+    'http://localhost:8000'
+  ];
   
   if (!allowedOrigins.includes(sender.origin)) {
     sendResponse({error: 'Unauthorized origin'});

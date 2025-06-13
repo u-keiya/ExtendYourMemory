@@ -47,6 +47,17 @@ Chrome の履歴データに直接 SQLite ファイルアクセスするので�
 - `storage`: 設定の保存
 - `activeTab`: 現在のタブへのアクセス
 
+### 3. サーバーURLの設定
+
+リモートの MCP サーバーを利用する場合は、ブラウザのコンソールで以下を実行して
+サーバー URL を保存します。
+
+```javascript
+chrome.storage.local.set({ serverUrl: 'https://your-server.example' });
+```
+
+HTTPS サーバーを指定する場合は、証明書が有効であることを確認してください。
+
 ## 🚀 使用方法
 
 ### JavaScript API
@@ -68,6 +79,9 @@ const recent = await window.ExtendYourMemoryBridge.getRecentHistory({
   hours: 24,          // 取得対象時間
   maxResults: 100     // 最大結果数
 });
+
+// 履歴データの送信を明示的にトリガー
+await window.ExtendYourMemoryBridge.refreshHistory();
 
 // 拡張機能の利用可能性チェック
 const available = window.ExtendYourMemoryBridge.isExtensionAvailable();
@@ -159,9 +173,9 @@ MCP サーバーは以下の方法で拡張機能と連携します：
 
 ### Current Limitations
 
-1. **Local Development Only**: 現在は localhost のみサポート
-2. **Manual Installation**: Chrome Web Store への公開は未実装
-3. **HTTP Only**: HTTPS サポートは追加実装が必要
+1. **Manual Installation**: Chrome Web Store への公開は未実装
+2. **Remote Usage**: サーバー URL を `chrome.storage.local` に設定することでリモート環境でも利用可能
+3. **HTTPS Recommended**: セキュアな通信のため公開環境では HTTPS を使用
 
 ### Future Enhancements
 
@@ -210,6 +224,7 @@ chrome://extensions/ → 拡張機能詳細 → background page を検査
 - `searchHistory(keywords, options)`: キーワードベースの履歴検索
 - `getRecentHistory(options)`: 最近の履歴取得
 - `getVisitDetails(url)`: 特定URLの詳細情報取得
+- `refreshHistory()`: 履歴データをサーバーへ即時送信
 
 ---
 

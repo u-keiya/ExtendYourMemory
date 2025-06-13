@@ -10,6 +10,7 @@
   window.ExtendYourMemoryBridge = {
     searchHistory: searchHistory,
     getRecentHistory: getRecentHistory,
+    refreshHistory: refreshHistory,
     isExtensionAvailable: isExtensionAvailable
   };
   
@@ -103,6 +104,39 @@
       }, '*');
     });
   }
+
+  /**
+   * Request the extension to send latest history to the server
+   */
+  function refreshHistory() {
+    return new Promise((resolve, reject) => {
+      if (!isExtensionAvailable()) {
+        reject(new Error('Chrome extension not available'));
+        return;
+      }
+
+      const requestId = ++requestIdCounter;
+      const timeout = 10000;
+
+      pendingRequests.set(requestId, { resolve, reject });
+
+      setTimeout(() => {
+        if (pendingRequests.has(requestId)) {
+          pendingRequests.delete(requestId);
+          reject(new Error('Request timeout'));
+        }
+      }, timeout);
+
+      window.postMessage({
+        type: 'EXTEND_YOUR_MEMORY_REQUEST',
+        requestId: requestId,
+        payload: {
+          action: 'refreshHistory',
+          params: {}
+        }
+      }, '*');
+    });
+  }
   
   // Listen for responses from content script
   window.addEventListener('message', function(event) {
@@ -128,7 +162,7 @@
   window.dispatchEvent(new CustomEvent('ExtendYourMemoryBridgeReady', {
     detail: {
       version: '1.0.0',
-      capabilities: ['searchHistory', 'getRecentHistory']
+      capabilities: ['searchHistory', 'getRecentHistory', 'refreshHistory']
     }
   }));
   

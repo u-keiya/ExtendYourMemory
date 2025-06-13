@@ -186,20 +186,34 @@ class RemoteChromeHistoryTool:
                 },
             }
 
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.server_url}/api/chrome/extension", json=payload, timeout=5.0
-                )
-                if response.status_code != 200:
+            for attempt in range(3):
+                try:
+                    async with httpx.AsyncClient() as client:
+                        response = await client.post(
+                            f"{self.server_url}/api/chrome/extension",
+                            json=payload,
+                            timeout=5.0,
+                        )
+
+                    if response.status_code == 200 and response.json().get("success"):
+                        logger.info("Chrome extension refresh triggered successfully")
+                        return True
+
                     logger.warning(
-                        "Chrome extension refresh request returned status %s",
-                        response.status_code,
+                        "Extension refresh attempt %s failed: status %s", attempt + 1, response.status_code
                     )
-                else:
-                    logger.info("Chrome extension refresh triggered successfully")
+
+                except Exception as e:
+                    logger.error("Attempt %s failed: %s", attempt + 1, e)
+
+                await asyncio.sleep(1)
+
+            logger.error("Giving up after 3 attempts to request extension refresh")
+            return False
 
         except Exception as e:
             logger.error("Failed to request history from extension: %s", e)
+            return False
     
     def _search_cached_history(
         self,
