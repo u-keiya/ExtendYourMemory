@@ -215,7 +215,7 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
         enable_relevance_check = excluded_folders_config.is_final_relevance_check_enabled()
         
         # 最終関連性チェックを無効にする場合はoriginal_queryをNoneに
-        original_query_for_search = query if enable_relevance_check else None
+        original_query_for_search = request.query if enable_relevance_check else None
         
         relevant_docs = await rag_pipeline.semantic_search(
             rag_queries, 

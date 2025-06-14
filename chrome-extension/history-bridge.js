@@ -12,6 +12,10 @@
   // Track extension availability
   let extensionAvailable = false;
   let extensionChecked = false;
+  // Consider expiring the cache or exposing a
+  // `force` parameter to re-probe after N minutes:
+  // const CACHE_TTL = 60_000; /* 1 min */
+  // let lastCheck = 0;
   
   /**
    * Check if the extension is available
