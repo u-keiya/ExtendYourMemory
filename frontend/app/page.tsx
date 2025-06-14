@@ -115,9 +115,42 @@ export default function Home() {
     }
   }
 
+  // Chrome Extension状態チェック
+  const checkExtensionStatus = async () => {
+    try {
+      const bridge: any = (window as any).ExtendYourMemoryBridge
+      if (bridge) {
+        const isAvailable = await bridge.testExtensionConnection().catch(() => false)
+        console.log('Extension status check:', isAvailable)
+        return isAvailable
+      }
+      return false
+    } catch (e) {
+      console.debug('Extension status check failed:', e)
+      return false
+    }
+  }
+
   // 初期ロード時にツール状態を取得
   useEffect(() => {
     fetchToolStatus()
+    
+    // Chrome Extension状態を定期的にチェック
+    const checkExtension = async () => {
+      const available = await checkExtensionStatus()
+      if (available) {
+        // 拡張機能が利用可能なら、ツール状態を再取得
+        fetchToolStatus()
+      }
+    }
+    
+    // 初回チェック
+    setTimeout(checkExtension, 1000)
+    
+    // 定期チェック（30秒ごと）
+    const interval = setInterval(checkExtension, 30000)
+    
+    return () => clearInterval(interval)
   }, [])
 
   const handleSearch = async () => {
@@ -131,11 +164,24 @@ export default function Home() {
     // Ask Chrome extension to send latest history to the server if available
     try {
       const bridge: any = (window as any).ExtendYourMemoryBridge
-      if (bridge && bridge.isExtensionAvailable()) {
-        await bridge.refreshHistory().catch(() => {})
+      if (bridge) {
+        // Test extension connection first
+        const isAvailable = await bridge.testExtensionConnection().catch(() => false)
+        console.log('Extension connection test:', isAvailable)
+        
+        if (isAvailable) {
+          console.log('Refreshing Chrome history...')
+          await bridge.refreshHistory().catch((error: any) => {
+            console.warn('Extension refresh failed:', error)
+          })
+        } else {
+          console.warn('Chrome extension not responding')
+        }
+      } else {
+        console.warn('Chrome extension bridge not found')
       }
     } catch (e) {
-      console.debug('Extension refresh failed', e)
+      console.debug('Extension communication error:', e)
     }
 
     try {
@@ -270,11 +316,28 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
-                {toolStatus.chrome_history.cache_valid ? (
-                  <CheckCircle className="h-5 w-5 text-green-500" />
-                ) : (
-                  <AlertCircle className="h-5 w-5 text-yellow-500" />
-                )}
+                <div className="flex items-center gap-2">
+                  {!toolStatus.chrome_history.cache_valid && (
+                    <button
+                      onClick={async () => {
+                        const available = await checkExtensionStatus()
+                        if (available) {
+                          await fetchToolStatus()
+                        } else {
+                          alert('Chrome拡張機能が検出されません。拡張機能をインストールしてページを再読み込みしてください。')
+                        }
+                      }}
+                      className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                    >
+                      テスト
+                    </button>
+                  )}
+                  {toolStatus.chrome_history.cache_valid ? (
+                    <CheckCircle className="h-5 w-5 text-green-500" />
+                  ) : (
+                    <AlertCircle className="h-5 w-5 text-yellow-500" />
+                  )}
+                </div>
               </div>
             </div>
           </div>

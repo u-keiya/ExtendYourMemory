@@ -55,14 +55,15 @@ async function testHistoryAccess() {
   button.disabled = true;
   
   try {
-    // Test history search
-    const response = await new Promise((resolve, reject) => {
+    // Test 1: Search without keywords (last 30 days)
+    console.log('Testing history access without keywords...');
+    const response1 = await new Promise((resolve, reject) => {
       chrome.runtime.sendMessage({
         action: 'searchHistory',
         params: {
-          keywords: ['test'],
-          days: 7,
-          maxResults: 5
+          keywords: [],
+          days: 30,
+          maxResults: 10
         }
       }, (response) => {
         if (chrome.runtime.lastError) {
@@ -73,10 +74,47 @@ async function testHistoryAccess() {
       });
     });
     
-    if (response.success) {
-      showNotification(`✅ Success! Found ${response.total} history items`, 'success');
+    if (response1.success && response1.total > 0) {
+      showNotification(`✅ Success! Found ${response1.total} history items (30 days)`, 'success');
+      return;
+    }
+    
+    // Test 2: Search with broader time range (90 days)
+    console.log('Testing with broader time range...');
+    const response2 = await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({
+        action: 'searchHistory', 
+        params: {
+          keywords: [],
+          days: 90,
+          maxResults: 10
+        }
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else {
+          resolve(response);
+        }
+      });
+    });
+    
+    if (response2.success && response2.total > 0) {
+      showNotification(`✅ Success! Found ${response2.total} history items (90 days)`, 'success');
+      return;
+    }
+    
+    // Test 3: Check permissions and broad search
+    const permissions = await chrome.permissions.getAll();
+    console.log('Extension permissions:', permissions);
+    
+    if (response1.success || response2.success) {
+      if (response1.total === 0 && response2.total === 0) {
+        showNotification(`⚠️ Extension works but no history found. Visit some websites first.`, 'info');
+      } else {
+        showNotification(`❌ Error: ${response1.error || response2.error}`, 'error');
+      }
     } else {
-      showNotification(`❌ Error: ${response.error}`, 'error');
+      showNotification(`❌ Extension error: Check console for details`, 'error');
     }
     
   } catch (error) {

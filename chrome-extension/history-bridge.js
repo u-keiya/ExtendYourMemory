@@ -6,24 +6,75 @@
 (function() {
   'use strict';
   
-  // Create a global object for our API
-  window.ExtendYourMemoryBridge = {
-    searchHistory: searchHistory,
-    getRecentHistory: getRecentHistory,
-    refreshHistory: refreshHistory,
-    isExtensionAvailable: isExtensionAvailable
-  };
-  
   let requestIdCounter = 0;
   const pendingRequests = new Map();
+  
+  // Track extension availability
+  let extensionAvailable = false;
+  let extensionChecked = false;
   
   /**
    * Check if the extension is available
    */
   function isExtensionAvailable() {
-    return typeof chrome !== 'undefined' && 
-           chrome.runtime && 
-           chrome.runtime.id;
+    if (extensionChecked) {
+      return extensionAvailable;
+    }
+    
+    // Check if we're in the right context
+    return typeof window.ExtendYourMemoryBridge !== 'undefined';
+  }
+  
+  /**
+   * Test if extension is actually working by sending a ping
+   */
+  function testExtensionConnection() {
+    return new Promise((resolve) => {
+      if (extensionChecked) {
+        resolve(extensionAvailable);
+        return;
+      }
+      
+      const requestId = ++requestIdCounter;
+      const timeout = 3000; // 3 second timeout for connectivity test
+      
+      // Store the request
+      pendingRequests.set(requestId, { 
+        resolve: (result) => {
+          extensionAvailable = true;
+          extensionChecked = true;
+          resolve(true);
+        }, 
+        reject: () => {
+          extensionAvailable = false;
+          extensionChecked = true;
+          resolve(false);
+        }
+      });
+      
+      // Set timeout
+      setTimeout(() => {
+        if (pendingRequests.has(requestId)) {
+          pendingRequests.delete(requestId);
+          extensionAvailable = false;
+          extensionChecked = true;
+          resolve(false);
+        }
+      }, timeout);
+      
+      // Send a test message
+      window.postMessage({
+        type: 'EXTEND_YOUR_MEMORY_REQUEST',
+        requestId: requestId,
+        payload: {
+          action: 'getRecentHistory',
+          params: {
+            hours: 1,
+            maxResults: 1
+          }
+        }
+      }, '*');
+    });
   }
   
   /**
@@ -158,11 +209,20 @@
     }
   });
   
+  // Create a global object for our API
+  window.ExtendYourMemoryBridge = {
+    searchHistory: searchHistory,
+    getRecentHistory: getRecentHistory,
+    refreshHistory: refreshHistory,
+    isExtensionAvailable: isExtensionAvailable,
+    testExtensionConnection: testExtensionConnection
+  };
+
   // Dispatch event to notify that the bridge is ready
   window.dispatchEvent(new CustomEvent('ExtendYourMemoryBridgeReady', {
     detail: {
       version: '1.0.0',
-      capabilities: ['searchHistory', 'getRecentHistory', 'refreshHistory']
+      capabilities: ['searchHistory', 'getRecentHistory', 'refreshHistory', 'testExtensionConnection']
     }
   }));
   

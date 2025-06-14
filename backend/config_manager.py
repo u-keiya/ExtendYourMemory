@@ -50,7 +50,10 @@ class ExcludedFoldersConfig:
             "settings": {
                 "auto_exclude_enabled": True,
                 "cache_duration_hours": 24,
-                "max_excluded_folders": 50
+                "max_excluded_folders": 50,
+                "similarity_threshold": 0.5,
+                "enable_final_relevance_check": True,
+                "max_documents_for_relevance_check": 15
             },
             "last_updated": datetime.now().isoformat(),
             "version": "1.0"
@@ -171,6 +174,18 @@ class ExcludedFoldersConfig:
     def is_auto_exclude_enabled(self) -> bool:
         """自動除外が有効かチェック"""
         return self.config_data.get("settings", {}).get("auto_exclude_enabled", True)
+    
+    def get_similarity_threshold(self) -> float:
+        """類似度閾値を取得"""
+        return self.config_data.get("settings", {}).get("similarity_threshold", 0.3)
+    
+    def is_final_relevance_check_enabled(self) -> bool:
+        """最終関連性チェックが有効かチェック"""
+        return self.config_data.get("settings", {}).get("enable_final_relevance_check", True)
+    
+    def get_max_documents_for_relevance_check(self) -> int:
+        """関連性チェック対象の最大ドキュメント数を取得"""
+        return self.config_data.get("settings", {}).get("max_documents_for_relevance_check", 15)
     
     def get_settings(self) -> Dict[str, Any]:
         """設定情報を取得"""

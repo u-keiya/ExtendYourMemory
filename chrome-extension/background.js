@@ -15,9 +15,23 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 async function initializeExtension() {
-  await registerWithServer();
-  // Set up periodic sync
-  chrome.alarms.create('periodicSync', { periodInMinutes: 15 });
+  console.log('Initializing Extend Your Memory extension...');
+  
+  try {
+    await registerWithServer();
+    
+    // Set up periodic sync only if registration was successful
+    if (isRegistered) {
+      chrome.alarms.create('periodicSync', { periodInMinutes: 15 });
+      console.log('✓ Extension initialized successfully');
+    } else {
+      console.log('⚠️ Extension initialized but server connection failed');
+      console.log('   The extension will retry connecting when servers are available');
+    }
+  } catch (error) {
+    console.error('Error during extension initialization:', error);
+    console.log('⚠️ Extension will continue to work in offline mode');
+  }
 }
 
 // Handle messages from content scripts or popup
@@ -29,9 +43,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     handleRecentHistory(request.params, sendResponse);
     return true;
   } else if (request.action === 'refreshHistory') {
-    sendHistoryToServer().then(() => {
-      sendResponse({success: true, message: 'History refreshed'});
-    });
+    // Try to register with server if not already registered
+    if (!isRegistered) {
+      registerWithServer().then(() => {
+        sendHistoryToServer().then(() => {
+          sendResponse({success: true, message: 'History refreshed'});
+        }).catch((error) => {
+          sendResponse({success: false, error: error.message});
+        });
+      }).catch((error) => {
+        sendResponse({success: false, error: 'Server connection failed: ' + error.message});
+      });
+    } else {
+      sendHistoryToServer().then(() => {
+        sendResponse({success: true, message: 'History refreshed'});
+      }).catch((error) => {
+        sendResponse({success: false, error: error.message});
+      });
+    }
     return true;
   }
 });
@@ -61,6 +90,8 @@ async function getServerUrl() {
 async function registerWithServer() {
   try {
     const serverUrl = await getServerUrl();
+    console.log('Attempting to register with server:', serverUrl);
+    
     const response = await fetch(`${serverUrl}/api/chrome/register`, {
       method: 'POST',
       headers: {
@@ -81,10 +112,16 @@ async function registerWithServer() {
       // Send initial history data
       await sendHistoryToServer();
     } else {
-      console.error('Failed to register with server:', response.status);
+      console.error('Failed to register with server:', response.status, response.statusText);
+      console.error('Server response:', await response.text().catch(() => 'Unable to read response'));
     }
   } catch (error) {
     console.error('Error registering with server:', error);
+    console.error('This is normal if the MCP server is not running.');
+    console.error('Please start the server with: docker-compose up or npm run dev');
+    
+    // Don't throw the error - just log it and continue
+    isRegistered = false;
   }
 }
 
@@ -95,6 +132,8 @@ async function sendHistoryToServer(keywords = [], maxResults = 1000) {
       console.log('Not registered with server, skipping history sync');
       return;
     }
+    
+    console.log('Starting history sync to server...');
     
     // Get comprehensive history - last 30 days
     const historyItems = await chrome.history.search({
@@ -142,6 +181,10 @@ async function sendHistoryToServer(keywords = [], maxResults = 1000) {
     }
   } catch (error) {
     console.error('✗ Error sending history to server:', error);
+    console.error('This error is expected if the MCP server is not running.');
+    
+    // Mark as not registered so we can retry later
+    isRegistered = false;
   }
 }
 
@@ -189,21 +232,27 @@ async function handleHistorySearch(params, sendResponse) {
       maxResults = 50
     } = params;
     
+    console.log(`History search request: keywords=${JSON.stringify(keywords)}, days=${days}, maxResults=${maxResults}`);
+    
     // Calculate start time (days ago)
     const startTime = Date.now() - (days * 24 * 60 * 60 * 1000);
+    console.log(`Search start time: ${new Date(startTime).toISOString()}`);
     
     let allResults = [];
     
     if (keywords.length === 0) {
       // If no keywords, get recent history
+      console.log('Searching for recent history without keywords...');
       const results = await chrome.history.search({
         text: '',
         startTime: startTime,
         maxResults: maxResults
       });
+      console.log(`Raw search results (no keywords): ${results.length} items`);
       allResults = results;
     } else {
       // Search for each keyword
+      console.log(`Searching for keywords: ${keywords.join(', ')}`);
       for (const keyword of keywords) {
         try {
           const results = await chrome.history.search({
@@ -211,11 +260,38 @@ async function handleHistorySearch(params, sendResponse) {
             startTime: startTime,
             maxResults: Math.ceil(maxResults / keywords.length)
           });
+          console.log(`Raw search results for "${keyword}": ${results.length} items`);
           allResults = allResults.concat(results);
         } catch (error) {
           console.error(`Error searching for keyword "${keyword}":`, error);
         }
       }
+    }
+    
+    console.log(`Total raw results before processing: ${allResults.length}`);
+    
+    // Debug: Log some sample results
+    if (allResults.length > 0) {
+      console.log('Sample history item:', {
+        url: allResults[0].url,
+        title: allResults[0].title,
+        lastVisitTime: allResults[0].lastVisitTime,
+        visitCount: allResults[0].visitCount
+      });
+    } else {
+      console.warn('No history items found in Chrome history API');
+      
+      // Additional debugging: check permissions
+      const permissions = await chrome.permissions.getAll();
+      console.log('Extension permissions:', permissions);
+      
+      // Try a broader search
+      console.log('Attempting broader search...');
+      const broadResults = await chrome.history.search({
+        text: '',
+        maxResults: 10
+      });
+      console.log(`Broad search (no time limit): ${broadResults.length} items`);
     }
     
     // Remove duplicates based on URL

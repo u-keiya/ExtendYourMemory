@@ -210,8 +210,19 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
             ).dict()
         }))
         
-        relevant_docs = await rag_pipeline.semantic_search(rag_queries)
-        logger.info(f"Semantic search returned {len(relevant_docs)} relevant documents")
+        # 設定から類似度関連パラメータを取得
+        similarity_threshold = excluded_folders_config.get_similarity_threshold()
+        enable_relevance_check = excluded_folders_config.is_final_relevance_check_enabled()
+        
+        # 最終関連性チェックを無効にする場合はoriginal_queryをNoneに
+        original_query_for_search = query if enable_relevance_check else None
+        
+        relevant_docs = await rag_pipeline.semantic_search(
+            rag_queries, 
+            original_query=original_query_for_search, 
+            similarity_threshold=similarity_threshold
+        )
+        logger.info(f"Semantic search returned {len(relevant_docs)} relevant documents (threshold={similarity_threshold})")
         
         # ステップ7: レポート生成
         await websocket.send_text(json.dumps({
@@ -284,8 +295,19 @@ async def search_endpoint(request: QueryRequest):
         rag_queries = await rag_pipeline.generate_rag_queries(request.query)
         logger.info(f"Generated RAG queries: {rag_queries}")
         
-        relevant_docs = await rag_pipeline.semantic_search(rag_queries)
-        logger.info(f"Semantic search returned {len(relevant_docs)} relevant documents")
+        # 設定から類似度関連パラメータを取得
+        similarity_threshold = excluded_folders_config.get_similarity_threshold()
+        enable_relevance_check = excluded_folders_config.is_final_relevance_check_enabled()
+        
+        # 最終関連性チェックを無効にする場合はoriginal_queryをNoneに
+        original_query_for_search = query if enable_relevance_check else None
+        
+        relevant_docs = await rag_pipeline.semantic_search(
+            rag_queries, 
+            original_query=original_query_for_search, 
+            similarity_threshold=similarity_threshold
+        )
+        logger.info(f"Semantic search returned {len(relevant_docs)} relevant documents (threshold={similarity_threshold})")
         
         report = await rag_pipeline.generate_report(request.query, relevant_docs)
         logger.info("Report generated")

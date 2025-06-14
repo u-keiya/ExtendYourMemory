@@ -448,13 +448,101 @@ class RAGPipeline:
             raise RuntimeError(f"Failed to generate RAG queries with LLM: {e}")
     
     
-    async def semantic_search(self, queries: List[str]) -> List[Document]:
-        """セマンティック検索を実行"""
+    async def semantic_search(self, queries: List[str], original_query: Optional[str] = None, similarity_threshold: float = 0.3) -> List[Document]:
+        """セマンティック検索を実行（類似度スコアフィルタリング付き）"""
         
         if not self.retriever:
             logger.warning("Retriever not available")
             return []
         
+        try:
+            relevant_docs_with_scores = []
+            
+            for query in queries:
+                try:
+                    # similarity_search_with_score を使用してスコア付きで検索
+                    docs_with_scores = await asyncio.to_thread(
+                        self.vector_store.similarity_search_with_score,
+                        query,
+                        k=self.retriever.search_kwargs.get("k", 6)
+                    )
+                    
+                    # スコアと共にドキュメントを保存
+                    for doc, score in docs_with_scores:
+                        # FAISSでは距離が小さいほど類似度が高い（0に近いほど類似）
+                        # 類似度スコアに変換: similarity = 1 / (1 + distance)
+                        similarity_score = 1.0 / (1.0 + score)
+                        
+                        # 類似度閾値でフィルタリング
+                        if similarity_score >= similarity_threshold:
+                            relevant_docs_with_scores.append({
+                                'document': doc,
+                                'similarity_score': similarity_score,
+                                'distance': score,
+                                'query': query
+                            })
+                            
+                except Exception as e:
+                    logger.error(f"Error in semantic search for query '{query}': {e}")
+                    continue
+            
+            # 類似度スコアでソート（高い順）
+            relevant_docs_with_scores.sort(key=lambda x: x['similarity_score'], reverse=True)
+            
+            # 重複除去（コンテンツベース）とスコア情報の保持
+            unique_docs = []
+            seen_content = set()
+            
+            for item in relevant_docs_with_scores:
+                doc = item['document']
+                content_hash = hash(doc.page_content[:100])  # 最初の100文字でハッシュ
+                
+                if content_hash not in seen_content:
+                    seen_content.add(content_hash)
+                    
+                    # メタデータに類似度情報を追加
+                    doc.metadata['similarity_score'] = item['similarity_score']
+                    doc.metadata['distance'] = item['distance']
+                    doc.metadata['matched_query'] = item['query']
+                    
+                    unique_docs.append(doc)
+            
+            # 最終的な関連性チェック（元クエリとの関連性）
+            from config_manager import excluded_folders_config
+            max_docs_for_check = excluded_folders_config.get_max_documents_for_relevance_check()
+            
+            if original_query and len(unique_docs) > 10:
+                filtered_docs = await self._final_relevance_check(original_query, unique_docs[:max_docs_for_check])
+                logger.info(f"Final relevance check: {len(filtered_docs)}/{len(unique_docs)} documents passed")
+                unique_docs = filtered_docs
+            
+            # スコア統計をログ出力
+            if unique_docs:
+                scores = [doc.metadata.get('similarity_score', 0) for doc in unique_docs]
+                avg_score = sum(scores) / len(scores)
+                min_score = min(scores)
+                max_score = max(scores)
+                
+                logger.info(f"Semantic search returned {len(unique_docs)} documents with similarity filtering")
+                logger.info(f"  Similarity scores - Min: {min_score:.3f}, Max: {max_score:.3f}, Avg: {avg_score:.3f}")
+                logger.info(f"  Similarity threshold: {similarity_threshold}")
+                
+                # 低品質文書の警告
+                low_quality_count = len([s for s in scores if s < 0.5])
+                if low_quality_count > 0:
+                    logger.warning(f"  {low_quality_count} documents have low similarity scores (<0.5)")
+            else:
+                logger.warning("No documents passed similarity threshold")
+            
+            return unique_docs[:20]  # 最大20ドキュメント
+            
+        except Exception as e:
+            logger.error(f"Error in semantic search: {e}")
+            # フォールバック: 元の方法を使用
+            return await self._fallback_semantic_search(queries)
+    
+    async def _fallback_semantic_search(self, queries: List[str]) -> List[Document]:
+        """フォールバック用のセマンティック検索（スコアなし）"""
         try:
             relevant_docs = []
             
@@ -466,25 +554,87 @@ class RAGPipeline:
                     )
                     relevant_docs.extend(docs)
                 except Exception as e:
-                    logger.error(f"Error in semantic search for query '{query}': {e}")
+                    logger.error(f"Error in fallback search for query '{query}': {e}")
                     continue
             
-            # 重複除去（コンテンツベース）
+            # 重複除去のみ
             unique_docs = []
             seen_content = set()
             
             for doc in relevant_docs:
-                content_hash = hash(doc.page_content[:100])  # 最初の100文字でハッシュ
+                content_hash = hash(doc.page_content[:100])
                 if content_hash not in seen_content:
                     seen_content.add(content_hash)
                     unique_docs.append(doc)
             
-            logger.info(f"Semantic search returned {len(unique_docs)} unique documents")
-            return unique_docs[:20]  # 最大20ドキュメント
+            logger.info(f"Fallback search returned {len(unique_docs)} documents")
+            return unique_docs[:20]
             
         except Exception as e:
-            logger.error(f"Error in semantic search: {e}")
+            logger.error(f"Error in fallback semantic search: {e}")
             return []
+    
+    async def _final_relevance_check(self, original_query: str, documents: List[Document]) -> List[Document]:
+        """元クエリとの最終関連性チェック"""
+        
+        if not self.llm:
+            logger.warning("LLM not available for relevance check")
+            return documents[:10]  # LLMが使えない場合は上位10件を返す
+        
+        try:
+            # ドキュメント概要を作成
+            doc_summaries = []
+            for i, doc in enumerate(documents):
+                content_preview = doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content
+                doc_summaries.append(f"[{i}] {doc.metadata.get('title', 'Untitled')}: {content_preview}")
+            
+            # LLMに関連性判定を依頼
+            relevance_prompt = f"""
+ユーザークエリ: "{original_query}"
+
+以下のドキュメントの中から、ユーザークエリに関連性が高いものを選択してください。
+関連性が低い、または無関係なドキュメントは除外してください。
+
+ドキュメント一覧:
+{chr(10).join(doc_summaries)}
+
+関連性が高いドキュメントの番号を、関連性の高い順にカンマ区切りで返してください。
+例: 0,3,7,2
+
+番号のみを返してください。説明は不要です。
+"""
+            
+            response = await asyncio.to_thread(
+                lambda: self.llm.invoke(relevance_prompt)
+            )
+            
+            # レスポンスから番号を抽出
+            selected_indices = []
+            try:
+                numbers = response.content.strip().split(',')
+                for num_str in numbers:
+                    try:
+                        idx = int(num_str.strip())
+                        if 0 <= idx < len(documents):
+                            selected_indices.append(idx)
+                    except ValueError:
+                        continue
+            except Exception as e:
+                logger.warning(f"Failed to parse relevance check response: {e}")
+                return documents[:10]  # パース失敗時は上位10件
+            
+            # 選択されたドキュメントを返す
+            if selected_indices:
+                filtered_docs = [documents[i] for i in selected_indices]
+                logger.info(f"Relevance check: selected {len(filtered_docs)} from {len(documents)} documents")
+                return filtered_docs
+            else:
+                logger.warning("No documents selected by relevance check, returning top 5")
+                return documents[:5]
+                
+        except Exception as e:
+            logger.error(f"Error in final relevance check: {e}")
+            return documents[:10]
     
     async def generate_report(self, query: str, context_docs: List[Document]) -> str:
         """構造化レポートを生成"""
