@@ -251,6 +251,14 @@ class RAGPipeline:
             logger.warning("No documents to process")
             return None
         
+        # Google検索結果や低品質ソースをフィルタリング
+        filtered_documents = self._filter_low_quality_sources(documents)
+        logger.info(f"Filtered {len(documents)} → {len(filtered_documents)} documents (removed low-quality sources)")
+        
+        if not filtered_documents:
+            logger.warning("No documents remaining after quality filtering")
+            return None
+        
         try:
             # 適応的チャンク戦略の取得
             if query_analysis:
@@ -263,7 +271,7 @@ class RAGPipeline:
                 }
             
             # ドキュメントを最適化された戦略で分割
-            splits = await self._split_documents_optimized(documents, chunk_config)
+            splits = await self._split_documents_optimized(filtered_documents, chunk_config)
             
             if not splits:
                 logger.warning("No document splits created")
@@ -715,6 +723,171 @@ class RAGPipeline:
         except Exception as e:
             logger.error(f"Error loading vector store: {e}")
     
+    def _filter_low_quality_sources(self, documents: List[Document]) -> List[Document]:
+        """低品質なソース（Google検索結果など）をフィルタリング"""
+        
+        filtered_docs = []
+        removed_count = {'search_results': 0, 'low_content': 0, 'blocked_domains': 0}
+        
+        for doc in documents:
+            try:
+                url = doc.metadata.get('url', '')
+                title = doc.metadata.get('title', '').lower()
+                content = doc.page_content.lower()
+                source = doc.metadata.get('source', '')
+                
+                # Google検索結果ページを除外
+                if self._is_search_result_page(url, title, content):
+                    removed_count['search_results'] += 1
+                    logger.debug(f"Filtered search result: {title[:50]}...")
+                    continue
+                
+                # 低品質コンテンツを除外
+                if self._is_low_quality_content(content, title):
+                    removed_count['low_content'] += 1
+                    logger.debug(f"Filtered low quality content: {title[:50]}...")
+                    continue
+                
+                # ブロックドメインを除外
+                if self._is_blocked_domain(url):
+                    removed_count['blocked_domains'] += 1
+                    logger.debug(f"Filtered blocked domain: {url}")
+                    continue
+                
+                # 品質基準を通過したドキュメントを保持
+                filtered_docs.append(doc)
+                
+            except Exception as e:
+                logger.warning(f"Error filtering document: {e}")
+                # エラーの場合は保守的にドキュメントを保持
+                filtered_docs.append(doc)
+        
+        # フィルタリング統計をログ出力
+        total_removed = sum(removed_count.values())
+        if total_removed > 0:
+            logger.info(f"Document filtering removed {total_removed} documents:")
+            logger.info(f"  Search results: {removed_count['search_results']}")
+            logger.info(f"  Low quality content: {removed_count['low_content']}")
+            logger.info(f"  Blocked domains: {removed_count['blocked_domains']}")
+        
+        return filtered_docs
+    
+    def _is_search_result_page(self, url: str, title: str, content: str) -> bool:
+        """検索結果ページかどうかを判定"""
+        
+        # URL パターンで検索結果ページを検出
+        search_url_patterns = [
+            'google.com/search',
+            'google.co.jp/search',
+            'bing.com/search',
+            'yahoo.com/search',
+            'duckduckgo.com/',
+            'baidu.com/s',
+            'yandex.com/search'
+        ]
+        
+        for pattern in search_url_patterns:
+            if pattern in url.lower():
+                return True
+        
+        # タイトルで検索結果ページを検出
+        search_title_patterns = [
+            '- google 検索',
+            '- google search',
+            '- bing search',
+            '- yahoo search',
+            'search results',
+            '検索結果'
+        ]
+        
+        for pattern in search_title_patterns:
+            if pattern in title:
+                return True
+        
+        # コンテンツで検索結果ページを検出
+        search_content_indicators = [
+            'did you mean',
+            'search instead for',
+            'showing results for',
+            'about x results',
+            'もしかして',
+            '検索結果',
+            'results for'
+        ]
+        
+        for indicator in search_content_indicators:
+            if indicator in content and len(content) < 1000:  # 短いコンテンツで検索指標がある場合
+                return True
+        
+        return False
+    
+    def _is_low_quality_content(self, content: str, title: str) -> bool:
+        """低品質コンテンツかどうかを判定"""
+        
+        # 極端に短いコンテンツ
+        if len(content.strip()) < 100:
+            return True
+        
+        # エラーページやアクセス拒否ページ
+        error_indicators = [
+            '404 not found',
+            '403 forbidden',
+            'access denied',
+            'page not found',
+            'server error',
+            'アクセスが拒否されました',
+            'ページが見つかりません',
+            'エラーが発生しました'
+        ]
+        
+        for indicator in error_indicators:
+            if indicator in content:
+                return True
+        
+        # ナビゲーションメニューのみのページ
+        nav_only_indicators = [
+            'home about contact',
+            'ホーム について お問い合わせ',
+            'menu navigation'
+        ]
+        
+        content_words = len(content.split())
+        if content_words < 50:  # 極端に短い場合のみチェック
+            for indicator in nav_only_indicators:
+                if indicator in content:
+                    return True
+        
+        # 重複の多いコンテンツ（同じ文章の繰り返し）
+        sentences = content.split('.')
+        if len(sentences) > 5:
+            unique_sentences = set(s.strip().lower() for s in sentences if s.strip())
+            if len(unique_sentences) / len(sentences) < 0.5:  # 50%以上が重複
+                return True
+        
+        return False
+    
+    def _is_blocked_domain(self, url: str) -> bool:
+        """ブロックすべきドメインかどうかを判定"""
+        
+        blocked_domains = [
+            'twitter.com',
+            'facebook.com',
+            'instagram.com',
+            'tiktok.com',
+            'linkedin.com',
+            'pinterest.com',
+            'reddit.com',  # コメントセクションが多く情報価値が低い場合が多い
+            'youtube.com/watch',  # 動画ページ（動画自体は取得できない）
+            'localhost',
+            '127.0.0.1'
+        ]
+        
+        for domain in blocked_domains:
+            if domain in url.lower():
+                return True
+        
+        return False
+    
     def _is_fetchable_url(self, url: str) -> bool:
         """Check if URL is suitable for web fetching"""
         try:
@@ -725,21 +898,9 @@ class RAGPipeline:
             if parsed.scheme not in ['http', 'https']:
                 return False
             
-            # Skip common non-content URLs
-            skip_patterns = [
-                'google.com/search',
-                'bing.com/search',
-                'youtube.com/watch',
-                'twitter.com',
-                'facebook.com',
-                'instagram.com',
-                'localhost',
-                '127.0.0.1'
-            ]
-            
-            for pattern in skip_patterns:
-                if pattern in url.lower():
-                    return False
+            # Use the same filtering logic as _filter_low_quality_sources
+            if self._is_blocked_domain(url):
+                return False
             
             # Skip file downloads
             skip_extensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.zip', '.tar', '.gz']
