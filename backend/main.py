@@ -224,6 +224,60 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
         )
         logger.info(f"Semantic search returned {len(relevant_docs)} relevant documents (threshold={similarity_threshold})")
         
+        # RAG検索結果を進行状況として送信
+        def convert_to_json_serializable(obj):
+            """numpy型をJSON serializable形式に変換"""
+            import numpy as np
+            if isinstance(obj, (np.integer, np.floating, np.bool_)):
+                return obj.item()
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {k: convert_to_json_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_to_json_serializable(item) for item in obj]
+            else:
+                return obj
+        
+        rag_results_data = []
+        for doc in relevant_docs[:10]:  # 最初の10件を送信
+            metadata = getattr(doc, 'metadata', {}).copy()
+            # スコアをメタデータから取得
+            score = metadata.get('similarity_score', getattr(doc, 'score', None))
+            
+            # web_fetchソースをChrome Historyに変更
+            if metadata.get('source') == 'web_fetch':
+                metadata['source'] = 'Chrome History'
+            
+            # Google DriveファイルのURL生成
+            if 'google_drive' in str(metadata.get('source', '')).lower():
+                if 'file_id' in metadata:
+                    metadata['url'] = f"https://drive.google.com/file/d/{metadata['file_id']}/view"
+                elif 'id' in metadata:
+                    metadata['url'] = f"https://drive.google.com/file/d/{metadata['id']}/view"
+            
+            doc_data = {
+                "content": doc.page_content[:500] if hasattr(doc, 'page_content') else str(doc)[:500],
+                "metadata": convert_to_json_serializable(metadata),
+                "score": convert_to_json_serializable(score)
+            }
+            rag_results_data.append(doc_data)
+        
+        await websocket.send_text(json.dumps({
+            "event": "search_progress",
+            "data": SearchProgress(
+                step=6,
+                stage="rag_search_complete",
+                message=f"セマンティック検索完了: {len(relevant_docs)}件の関連ドキュメントを発見",
+                details={
+                    "rag_queries": rag_queries,
+                    "results": rag_results_data,
+                    "total_results": len(relevant_docs),
+                    "similarity_threshold": similarity_threshold
+                }
+            ).dict()
+        }))
+        
         # ステップ7: レポート生成
         await websocket.send_text(json.dumps({
             "event": "search_progress",

@@ -27,6 +27,7 @@ class RAGPipeline:
         self.mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8501")
         self.query_generator = None
         self.faiss_optimizer = AdaptiveFAISSOptimizer()  # 新しい最適化コンポーネント
+        self._clear_vector_store_cache()  # 起動時にキャッシュをクリア
         self._initialize_models()
     
     def _initialize_models(self):
@@ -36,6 +37,17 @@ class RAGPipeline:
         if not google_api_key:
             logger.warning("GOOGLE_API_KEY not found. RAG pipeline functionality will be limited.")
             return
+    
+    def _clear_vector_store_cache(self):
+        """ベクターストアキャッシュファイルを削除"""
+        import shutil
+        cache_path = "./vector_store_cache"
+        try:
+            if os.path.exists(cache_path):
+                shutil.rmtree(cache_path)
+                logger.info("Cleared vector store cache directory to prevent data contamination")
+        except Exception as e:
+            logger.warning(f"Failed to clear vector store cache: {e}")
         
         try:
             # Gemini 2.5 Flash LLMの初期化
@@ -288,18 +300,13 @@ class RAGPipeline:
                     "lambda_mult": 0.5
                 }
             
-            # ベクトル化とストア
-            if self.vector_store is None:
-                self.vector_store = await asyncio.to_thread(
-                    FAISS.from_documents,
-                    documents=splits,
-                    embedding=self.embeddings
-                )
-            else:
-                await asyncio.to_thread(
-                    self.vector_store.add_documents,
-                    splits
-                )
+            # ベクトル化とストア（常に新規作成で過去の検索結果をクリア）
+            logger.info("Creating NEW vector store (clearing previous search data to prevent contamination)")
+            self.vector_store = await asyncio.to_thread(
+                FAISS.from_documents,
+                documents=splits,
+                embedding=self.embeddings
+            )
             
             # 適応的パラメータでリトリーバーを更新
             self.retriever = self.vector_store.as_retriever(
@@ -660,7 +667,9 @@ class RAGPipeline:
             report_prompt = PromptTemplate(
                 template="""質問: {question}
                 
-                以下の情報源を基に、構造化されたレポートを作成してください．なお， **ユーザの質問に関連がない** と判断した情報は無視してください．：
+                以下の情報源を基に、構造化されたレポートをマークダウン形式で作成してください．
+                参考にした文献はURLのリンク埋め込みを行ってください．
+                なお， **ユーザの質問に関連がない** と判断した情報は無視してください．：
                 
                 {context}
                 
@@ -669,9 +678,8 @@ class RAGPipeline:
                 2. **詳細な分析** - 情報源から得られた具体的な内容
                 3. **重要なポイント** - 箇条書きで主要な発見事項
                 4. **結論** - 質問に対する総合的な回答
-                5. **引用情報** - 各情報には必ず出典を明記
                 マークダウン形式で、読みやすく構造化して出力してください。
-                各情報には適切な引用を含めてください。""",
+                各情報には適切な引用を含めてください。参考文献は不要です．""",
                 input_variables=["question", "context"]
             )
             
