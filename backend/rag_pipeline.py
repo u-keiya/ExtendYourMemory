@@ -778,6 +778,7 @@ class RAGPipeline:
         # URL パターンで検索結果ページを検出
         search_url_patterns = [
             'google.com/search',
+            'google.com/search?',
             'google.co.jp/search',
             'bing.com/search',
             'yahoo.com/search',
