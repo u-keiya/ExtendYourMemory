@@ -152,8 +152,7 @@ class LLMQueryGenerator:
             
         except Exception as e:
             logger.error(f"Error in hierarchical keyword generation: {e}")
-            # フォールバック: シンプルなキーワード生成
-            return await self._fallback_keyword_generation(user_query)
+            raise RuntimeError(f"階層的キーワード生成に失敗しました: {str(e)}")
 
     async def generate_diverse_keywords(self, user_query: str) -> Dict[str, Any]:
         """AGRフレームワークを使用した高度なキーワード生成"""
@@ -190,8 +189,7 @@ class LLMQueryGenerator:
             
         except Exception as e:
             logger.error(f"Error in AGR keyword generation: {e}")
-            # フォールバック: 従来の方法
-            return await self._fallback_keyword_generation(user_query)
+            raise RuntimeError(f"AGRキーワード生成に失敗しました: {str(e)}")
     
     async def generate_multi_perspective_queries(self, original_query: str, initial_results: Optional[List] = None) -> List[str]:
         """AGR Step 3: 多角的なRAG検索クエリを生成（初回結果による改善を含む）"""
@@ -254,8 +252,7 @@ class LLMQueryGenerator:
             
         except Exception as e:
             logger.error(f"Error in multi-perspective query generation: {e}")
-            # フォールバック
-            return await self._fallback_rag_queries(original_query)
+            raise RuntimeError(f"RAGクエリ生成に失敗しました: {str(e)}")
 
     async def generate_rag_queries(self, original_query: str) -> List[str]:
         """後方互換性のためのラッパー関数"""
@@ -318,7 +315,7 @@ class LLMQueryGenerator:
             
         except Exception as e:
             logger.error(f"Error in query refinement: {e}")
-            return await self._fallback_rag_queries(original_query)
+            raise RuntimeError(f"クエリ改善に失敗しました: {str(e)}")
 
     def _analyze_initial_results(self, results: List) -> Dict[str, Any]:
         """初回検索結果の品質分析"""
@@ -385,6 +382,15 @@ class LLMQueryGenerator:
         if json_match:
             content = json_match.group(0)
         
+        # LLMが生成する不正な文字列を除去
+        # "Farrago." や類似の不正な文字列を除去
+        content = re.sub(r'\s+[A-Z][a-z]+\.\s*"?\s*\]', ']', content)
+        content = re.sub(r',\s*[A-Z][a-z]+\.\s*"?\s*\]', ']', content)
+        
+        # 配列内の不正な要素を除去
+        content = re.sub(r',\s*"[A-Z][a-z]+\."', '', content)
+        content = re.sub(r'"[A-Z][a-z]+\.",?\s*', '', content)
+        
         # 末尾のカンマを除去（よくあるJSONエラー）
         content = re.sub(r',(\s*[}\]])', r'\1', content)
         
@@ -392,6 +398,10 @@ class LLMQueryGenerator:
         content = re.sub(r'\s+', ' ', content)
         content = re.sub(r',\s*}', '}', content)
         content = re.sub(r',\s*]', ']', content)
+        
+        # 空の配列要素を除去
+        content = re.sub(r'\[\s*,', '[', content)
+        content = re.sub(r',\s*,', ',', content)
         
         return content.strip()
 
@@ -458,6 +468,21 @@ class LLMQueryGenerator:
                 keywords = [k.strip(' "\'') for k in keywords_str.split(',') if k.strip()]
                 result['negative_keywords'] = keywords
             
+            # RAGクエリ関連フィールドを抽出
+            # decomposed_queries を抽出
+            decomposed_match = re.search(r'"decomposed_queries":\s*\[(.*?)\]', content, re.DOTALL)
+            if decomposed_match:
+                queries_str = decomposed_match.group(1)
+                queries = [q.strip(' "\'') for q in queries_str.split(',') if q.strip() and not q.strip().endswith('.')]
+                result['decomposed_queries'] = queries
+            
+            # all_queries を抽出
+            all_queries_match = re.search(r'"all_queries":\s*\[(.*?)\]', content, re.DOTALL)
+            if all_queries_match:
+                queries_str = all_queries_match.group(1)
+                queries = [q.strip(' "\'') for q in queries_str.split(',') if q.strip() and not q.strip().endswith('.')]
+                result['all_queries'] = queries
+            
             # search_confidence を抽出
             confidence_match = re.search(r'"search_confidence":\s*([\d.]+)', content)
             if confidence_match:
@@ -479,72 +504,6 @@ class LLMQueryGenerator:
         logger.error(f"All JSON parsing methods failed for content: {content[:100]}...")
         return None
 
-    async def _fallback_keyword_generation(self, user_query: str) -> Dict[str, Any]:
-        """フォールバック用のシンプルなキーワード生成"""
-        try:
-            simple_prompt = PromptTemplate(
-                template="""以下のクエリから重要なキーワードを5個生成してください："{query}"
-                
-                JSON形式で出力：
-                {{
-                    "all_keywords": ["キーワード1", "キーワード2", "キーワード3", "キーワード4", "キーワード5"]
-                }}""",
-                input_variables=["query"]
-            )
-            
-            response = await asyncio.to_thread(
-                lambda: self.llm.invoke(simple_prompt.format(query=user_query))
-            )
-            
-            content = self._parse_json_response(response.content)
-            result = self._robust_json_parse(content)
-            if result is None:
-                # 最後のフォールバック：クエリから単純に分割
-                keywords = user_query.split()[:5]
-                result = {'all_keywords': keywords}
-            
-            return {
-                'all_keywords': result.get('all_keywords', [user_query]),
-                'hierarchical': {
-                    'primary_keywords': result.get('all_keywords', [user_query])[:2],
-                    'secondary_keywords': result.get('all_keywords', [user_query])[2:],
-                    'context_keywords': [],
-                    'negative_keywords': []
-                },
-                'analysis': {'intent': '情報検索', 'complexity': '中程度'}
-            }
-            
-        except Exception as e:
-            logger.error(f"Fallback keyword generation failed: {e}")
-            return {
-                'all_keywords': [user_query],
-                'hierarchical': {
-                    'primary_keywords': [user_query],
-                    'secondary_keywords': [],
-                    'context_keywords': [],
-                    'negative_keywords': []
-                },
-                'analysis': {'intent': '情報検索', 'complexity': '中程度'}
-            }
-
-    async def _fallback_rag_queries(self, original_query: str) -> List[str]:
-        """フォールバック用のシンプルなRAGクエリ生成"""
-        try:
-            # 単純な変形クエリを生成
-            variations = [
-                original_query,
-                f"What is {original_query}?",
-                f"How to {original_query}?",
-                f"{original_query} について",
-                f"{original_query} 方法"
-            ]
-            
-            logger.info(f"Using fallback RAG queries: {len(variations)}")
-            return variations[:5]
-            
-        except Exception as e:
-            logger.error(f"Fallback RAG queries failed: {e}")
-            return [original_query]
 
     def record_search_success(self, query: str, keywords: Dict[str, Any], result_quality: float):
         """成功した検索パターンを記録 (将来の学習機能用)"""
