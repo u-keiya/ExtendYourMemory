@@ -375,9 +375,13 @@ export default function Home() {
       <div className="flex-1 p-4 overflow-y-auto">
         <div className="max-w-4xl mx-auto">
         <header className="text-center py-8">
-          <h1 className="text-4xl font-bold text-black mb-2">
-            Extend Your Memory
-          </h1>
+          <div className="mb-4">
+            <img 
+              src="/banner_v2.png" 
+              alt="Extend Your Memory" 
+              className="w-full h-auto object-contain"
+            />
+          </div>
           <p className="text-lg text-black">
             あなたのデジタル記憶からAIが知識を検索・統合します
           </p>
