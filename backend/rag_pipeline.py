@@ -86,11 +86,6 @@ class RAGPipeline:
             # Ensure query_generator is None for proper error handling
             self.query_generator = None
     
-    async def generate_keywords(self, user_query: str) -> List[str]:
-        """ユーザークエリから検索キーワードを生成（後方互換性のため）"""
-        
-        keyword_data = await self.generate_hierarchical_keywords(user_query)
-        return keyword_data.get('all_keywords', [])
 
     async def generate_hierarchical_keywords(self, user_query: str) -> Dict[str, Any]:
         """AGRフレームワークを使用した階層的キーワード生成"""
@@ -339,61 +334,6 @@ class RAGPipeline:
             logger.error(f"Error processing documents: {e}")
             return None
     
-    async def _split_documents(self, documents: List[Document]) -> List[Document]:
-        """ドキュメントを適切なチャンクに分割"""
-        
-        all_splits = []
-        
-        for doc in documents:
-            try:
-                content = doc.page_content
-                metadata = doc.metadata
-                
-                # Markdownドキュメントの場合
-                if (metadata.get("ocr_processed") or 
-                    ".md" in metadata.get("title", "") or
-                    content.startswith("#")):
-                    
-                    # Markdownヘッダーで分割
-                    headers_to_split_on = [
-                        ("#", "Header 1"),
-                        ("##", "Header 2"),
-                        ("###", "Header 3")
-                    ]
-                    
-                    markdown_splitter = MarkdownHeaderTextSplitter(
-                        headers_to_split_on=headers_to_split_on,
-                        strip_headers=False
-                    )
-                    
-                    md_splits = markdown_splitter.split_text(content)
-                    
-                    # さらに文字数で分割
-                    text_splitter = RecursiveCharacterTextSplitter(
-                        chunk_size=1000,
-                        chunk_overlap=200
-                    )
-                    
-                    for split in md_splits:
-                        split.metadata.update(metadata)
-                        chunks = text_splitter.split_documents([split])
-                        all_splits.extend(chunks)
-                else:
-                    # 通常のテキストドキュメント
-                    text_splitter = RecursiveCharacterTextSplitter(
-                        chunk_size=1000,
-                        chunk_overlap=200,
-                        separators=["\n\n", "\n", "。", ".", " ", ""]
-                    )
-                    
-                    chunks = text_splitter.split_documents([doc])
-                    all_splits.extend(chunks)
-                    
-            except Exception as e:
-                logger.error(f"Error splitting document: {e}")
-                continue
-        
-        return all_splits
     
     async def _split_documents_optimized(self, documents: List[Document], chunk_config: Dict[str, Any]) -> List[Document]:
         """最適化されたパラメータでドキュメントを分割"""
@@ -618,19 +558,19 @@ class RAGPipeline:
             
             # LLMに関連性判定を依頼
             relevance_prompt = f"""
-ユーザークエリ: "{original_query}"
-
-以下のドキュメントの中から、ユーザークエリに関連性が高いものを選択してください。
-関連性が低い、または無関係なドキュメントは除外してください。
-
-ドキュメント一覧:
-{chr(10).join(doc_summaries)}
-
-関連性が高いドキュメントの番号を、関連性の高い順にカンマ区切りで返してください。
-例: 0,3,7,2
-
-番号のみを返してください。説明は不要です。
-"""
+            ユーザークエリ: "{original_query}"
+            
+            以下のドキュメントの中から、ユーザークエリに関連性が高いものを選択してください。
+            関連性が低い、または無関係なドキュメントは除外してください。
+            
+            ドキュメント一覧:
+            {chr(10).join(doc_summaries)}
+            
+            関連性が高いドキュメントの番号を、関連性の高い順にカンマ区切りで返してください。
+            例: 0,3,7,2
+            
+            番号のみを返してください。説明は不要です。
+            """
             
             response = await asyncio.to_thread(
                 lambda: self.llm.invoke(relevance_prompt)
@@ -681,7 +621,8 @@ class RAGPipeline:
                 template="""質問: {question}
                 
                 以下の情報源を基に、構造化されたレポートをマークダウン形式で作成してください．数式はKatexで対応しています．
-                参考にした文献はURLのリンク埋め込みを行ってください．ただし，レポートの見やすさのため，埋め込みを行う文字列は文献のタイトルではなく'[1]'などのように番号で示してください．
+                参考にした文献はURLのリンク埋め込みを行ってください．ただし，レポートの見やすさのため，'[[1]](URL)'のようにURLのタイトルは番号で示してください．
+                見やすいレポート作りを徹底してください．
                 なお， **ユーザの質問に関連がない** と判断した情報は無視してください．：
                 
                 {context}
@@ -722,27 +663,6 @@ class RAGPipeline:
             except Exception as e:
                 logger.error(f"Error saving vector store: {e}")
     
-    async def load_vector_store(self, path: str = "./vector_store_cache"):
-        """保存されたベクトルストアをロード"""
-        if not self.embeddings:
-            logger.warning("Embeddings not available, cannot load vector store")
-            return
-        
-        try:
-            if os.path.exists(path):
-                self.vector_store = await asyncio.to_thread(
-                    FAISS.load_local,
-                    path,
-                    self.embeddings,
-                    allow_dangerous_deserialization=True
-                )
-                self.retriever = self.vector_store.as_retriever(
-                    search_type="mmr",
-                    search_kwargs={"k": 6, "fetch_k": 20, "lambda_mult": 0.5}
-                )
-                logger.info(f"Vector store loaded from {path}")
-        except Exception as e:
-            logger.error(f"Error loading vector store: {e}")
     
     def _filter_low_quality_sources(self, documents: List[Document]) -> List[Document]:
         """低品質なソース（Google検索結果など）をフィルタリング"""

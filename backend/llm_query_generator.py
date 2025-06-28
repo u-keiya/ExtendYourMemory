@@ -507,42 +507,4 @@ class LLMQueryGenerator:
         return None
 
 
-    def record_search_success(self, query: str, keywords: Dict[str, Any], result_quality: float):
-        """成功した検索パターンを記録 (将来の学習機能用)"""
-        try:
-            success_record = {
-                'query': query,
-                'keywords': keywords,
-                'quality': result_quality,
-                'timestamp': time.time()
-            }
-            
-            self.search_history.append(success_record)
-            
-            # 履歴サイズ制限
-            if len(self.search_history) > 100:
-                self.search_history = self.search_history[-50:]
-            
-            logger.info(f"Recorded search success pattern for query: {query[:50]}...")
-            
-        except Exception as e:
-            logger.error(f"Error recording search success: {e}")
 
-    def get_search_insights(self) -> Dict[str, Any]:
-        """検索パターンの分析結果を取得"""
-        try:
-            if not self.search_history:
-                return {'total_searches': 0, 'insights': 'No data available'}
-            
-            total_searches = len(self.search_history)
-            avg_quality = sum(record['quality'] for record in self.search_history) / total_searches
-            
-            return {
-                'total_searches': total_searches,
-                'average_quality': avg_quality,
-                'insights': f'Recorded {total_searches} searches with average quality {avg_quality:.2f}'
-            }
-            
-        except Exception as e:
-            logger.error(f"Error getting search insights: {e}")
-            return {'total_searches': 0, 'insights': 'Analysis failed'}
