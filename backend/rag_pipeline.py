@@ -30,14 +30,6 @@ class RAGPipeline:
         self._clear_vector_store_cache()  # 起動時にキャッシュをクリア
         self._initialize_models()
     
-    def _initialize_models(self):
-        """LLMと埋め込みモデルを初期化"""
-        google_api_key = os.getenv("GOOGLE_API_KEY")
-        
-        if not google_api_key:
-            logger.warning("GOOGLE_API_KEY not found. RAG pipeline functionality will be limited.")
-            return
-    
     def _clear_vector_store_cache(self):
         """ベクターストアキャッシュファイルを削除"""
         import shutil
@@ -48,30 +40,51 @@ class RAGPipeline:
                 logger.info("Cleared vector store cache directory to prevent data contamination")
         except Exception as e:
             logger.warning(f"Failed to clear vector store cache: {e}")
+    
+    def _initialize_models(self):
+        """LLMと埋め込みモデルを初期化"""
+        google_api_key = os.getenv("GOOGLE_API_KEY")
+        
+        if not google_api_key:
+            logger.warning("GOOGLE_API_KEY not found. RAG pipeline functionality will be limited.")
+            return
         
         try:
+            logger.info("Initializing RAG pipeline models...")
+            
             # Gemini 2.5 Flash LLMの初期化
+            logger.info("Initializing Gemini LLM...")
             self.llm = ChatGoogleGenerativeAI(
-                model="gemini-2.5-flash-preview-05-20",
+                model="gemini-2.5-flash",
                 google_api_key=google_api_key,
                 temperature=1.0,
                 max_tokens=8192
             )
+            logger.info("Gemini LLM initialized successfully")
             
             # Google Embeddings の初期化
+            logger.info("Initializing Google Embeddings...")
             self.embeddings = GoogleGenerativeAIEmbeddings(
                 model="models/text-embedding-004",
                 google_api_key=google_api_key
             )
+            logger.info("Google Embeddings initialized successfully")
             
             # LLM Query Generator の初期化
+            logger.info("Initializing LLM Query Generator...")
             self.query_generator = LLMQueryGenerator(self.llm)
+            logger.info("LLM Query Generator initialized successfully")
             
             logger.info("RAG pipeline models initialized successfully")
             
         except Exception as e:
             logger.error(f"Failed to initialize RAG models: {e}")
+            logger.error(f"Exception details: {type(e).__name__}: {str(e)}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             logger.warning("RAG pipeline functionality will be limited without proper API configuration")
+            # Ensure query_generator is None for proper error handling
+            self.query_generator = None
     
     async def generate_keywords(self, user_query: str) -> List[str]:
         """ユーザークエリから検索キーワードを生成（後方互換性のため）"""
@@ -667,8 +680,8 @@ class RAGPipeline:
             report_prompt = PromptTemplate(
                 template="""質問: {question}
                 
-                以下の情報源を基に、構造化されたレポートをマークダウン形式で作成してください．
-                参考にした文献はURLのリンク埋め込みを行ってください．
+                以下の情報源を基に、構造化されたレポートをマークダウン形式で作成してください．数式はKatexで対応しています．
+                参考にした文献はURLのリンク埋め込みを行ってください．ただし，レポートの見やすさのため，埋め込みを行う文字列は文献のタイトルではなく'[1]'などのように番号で示してください．
                 なお， **ユーザの質問に関連がない** と判断した情報は無視してください．：
                 
                 {context}
@@ -790,6 +803,7 @@ class RAGPipeline:
             'google.co.jp/search',
             'bing.com/search',
             'yahoo.com/search',
+            'youtube.com',
             'duckduckgo.com/',
             'baidu.com/s',
             'yandex.com/search'
