@@ -1,8 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Search, Loader2, FileText, Clock, Database, Shield, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, MessageSquare, Link2, Trash2 } from 'lucide-react'
+import { Search, Loader2, FileText, Clock, Database, Shield, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, MessageSquare, Link2, Trash2, Plus } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
 
 interface SearchProgress {
   step: number
@@ -26,6 +29,7 @@ interface ChatHistory {
   query: string
   timestamp: Date
   result?: SearchResult
+  ragResults?: any[]
 }
 
 interface ToolStatus {
@@ -67,7 +71,8 @@ export default function Home() {
           const parsed = JSON.parse(saved)
           return parsed.map((chat: any) => ({
             ...chat,
-            timestamp: new Date(chat.timestamp)
+            timestamp: new Date(chat.timestamp),
+            ragResults: chat.ragResults || [] // 古いデータとの互換性
           }))
         }
       } catch (error) {
@@ -80,6 +85,7 @@ export default function Home() {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true)
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true)
   const [ragResults, setRagResults] = useState<any[]>([])
+  const [pendingRagResults, setPendingRagResults] = useState<any[]>([])
 
   const mcpServerUrl = 'http://localhost:8501'
 
@@ -190,6 +196,8 @@ export default function Home() {
     setProgress(null)
     setResult(null)
     setError(null)
+    setRagResults([])
+    setPendingRagResults([])
 
     // Ask Chrome extension to send latest history to the server if available
     try {
@@ -231,20 +239,25 @@ export default function Home() {
           setProgress(data.data)
           // RAG検索の結果を保存
           if (data.data.stage === 'rag_search_complete' && data.data.details) {
-            setRagResults(data.data.details.results || [])
+            const newRagResults = data.data.details.results || []
+            setRagResults(newRagResults)
+            setPendingRagResults(newRagResults) // 検索完了時に使用するため
+            console.log('RAG results saved:', newRagResults.length, 'results')
           }
         } else if (data.event === 'search_complete') {
           const result = data.data
           setResult(result)
           setIsSearching(false)
           
-          // チャット履歴に追加
+          // チャット履歴に追加（RAG結果も含める）
           const newChat: ChatHistory = {
             id: Date.now().toString(),
             query,
             timestamp: new Date(),
-            result
+            result,
+            ragResults: pendingRagResults // 確実に最新のRAG結果を使用
           }
+          console.log('Saving chat with RAG results:', pendingRagResults.length, 'results')
           const updatedHistory = [newChat, ...chatHistory]
           setChatHistory(updatedHistory)
           setSelectedChatId(newChat.id)
@@ -299,6 +312,7 @@ export default function Home() {
       setSelectedChatId(chatId)
       setQuery(chat.query)
       setResult(chat.result || null)
+      setRagResults(chat.ragResults || [])
       setProgress(null)
       setError(null)
     }
@@ -310,6 +324,16 @@ export default function Home() {
       setSelectedChatId(null)
       localStorage.removeItem('extendYourMemory_chatHistory')
     }
+  }
+
+  const startNewConversation = () => {
+    setSelectedChatId(null)
+    setQuery('')
+    setResult(null)
+    setProgress(null)
+    setError(null)
+    setRagResults([])
+    setPendingRagResults([])
   }
 
   return (
@@ -344,6 +368,19 @@ export default function Home() {
         
         {isLeftSidebarOpen && (
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {/* 新規会話ボタン */}
+            <button
+              onClick={startNewConversation}
+              className={`w-full p-3 rounded-lg border transition-colors flex items-center gap-2 ${
+                selectedChatId === null
+                  ? 'bg-blue-100 border-blue-300 text-blue-800'
+                  : 'bg-green-50 hover:bg-green-100 border-green-200 text-green-800'
+              }`}
+            >
+              <Plus className="h-4 w-4" />
+              <span className="font-medium">新しい会話を開始</span>
+            </button>
+            
             {chatHistory.map((chat) => (
               <div
                 key={chat.id}
@@ -541,6 +578,8 @@ export default function Home() {
               <div className="prose prose-lg max-w-none text-black prose-headings:text-black prose-p:text-black prose-li:text-black prose-strong:text-black prose-a:text-blue-600 prose-a:underline hover:prose-a:text-blue-800">
                 <ReactMarkdown 
                   className="text-black"
+                  remarkPlugins={[remarkMath]}
+                  rehypePlugins={[rehypeKatex]}
                   components={{
                     h1: ({node, ...props}) => <h1 className="text-2xl font-bold text-black mb-4" {...props} />,
                     h2: ({node, ...props}) => <h2 className="text-xl font-semibold text-black mb-3 mt-6" {...props} />,
