@@ -59,43 +59,69 @@ class MistralOCRTool:
                 file_name
             )
             
-            if response and 'pages' in response:
-                # 全ページのマークダウンを結合
-                markdown_content = ""
-                for i, page in enumerate(response['pages']):
-                    if i > 0:
-                        markdown_content += "\n\n---\n\n"  # ページ区切り
-                    markdown_content += page.get('markdown', '')
+            # レスポンス形式の確認とマークダウン抽出
+            if response:
+                # レスポンス構造をログ出力（デバッグ用）
+                logger.info(f"Mistral OCR response structure for {file_name}: {list(response.keys()) if isinstance(response, dict) else type(response)}")
                 
-                logger.info(f"Successfully processed PDF {file_name} to markdown")
-                return markdown_content
+                # 公式ドキュメントに基づく抽出
+                markdown_content = ""
+                
+                # 直接的なmarkdownフィールドをチェック
+                if isinstance(response, dict) and 'markdown' in response:
+                    markdown_content = response['markdown']
+                # pagesフィールドをチェック
+                elif isinstance(response, dict) and 'pages' in response:
+                    for i, page in enumerate(response['pages']):
+                        if i > 0:
+                            markdown_content += "\n\n---\n\n"  # ページ区切り
+                        markdown_content += page.get('markdown', '')
+                # contentフィールドをチェック
+                elif isinstance(response, dict) and 'content' in response:
+                    markdown_content = response['content']
+                # レスポンス全体が文字列の場合
+                elif isinstance(response, str):
+                    markdown_content = response
+                else:
+                    logger.warning(f"Unexpected response format from Mistral OCR: {response}")
+                    # 可能な限り文字列として扱う
+                    markdown_content = str(response)
+                
+                if markdown_content:
+                    logger.info(f"Successfully processed PDF {file_name} to markdown ({len(markdown_content)} chars)")
+                    return markdown_content
+                else:
+                    logger.error(f"No markdown content found in response for {file_name}")
+                    raise RuntimeError(f"No markdown content found in Mistral OCR response for {file_name}")
             
             else:
-                logger.error(f"Invalid response from Mistral OCR API for {file_name}")
-                raise RuntimeError(f"Invalid response from Mistral OCR API for {file_name}")
+                logger.error(f"Empty response from Mistral OCR API for {file_name}")
+                raise RuntimeError(f"Empty response from Mistral OCR API for {file_name}")
                 
         except Exception as e:
             logger.error(f"Error processing PDF {file_name} with Mistral OCR: {e}")
             raise RuntimeError(f"Failed to process PDF with Mistral OCR: {e}")
     
     def _process_with_mistral_api(self, file_base64: str, file_name: str) -> dict:
-        """Mistral OCR APIを同期的に呼び出し"""
+        """Mistral OCR APIを同期的に呼び出し（公式ドキュメント準拠）"""
         
         try:
-            # Mistral OCR API呼び出し
+            # 公式ドキュメント準拠の正しい形式
             response = self.client.ocr.process(
+                model="mistral-ocr-latest",  # 最新モデルを使用
                 document={
-                    "type": "document_base64",
-                    "document_base64": f"data:application/pdf;base64,{file_base64}",
-                    "document_name": file_name
+                    "type": "document_url",
+                    "document_url": f"data:application/pdf;base64,{file_base64}"
                 },
-                model="mistral-ocr-2503"  # 最新のOCRモデル
+                include_image_base64=True  # 画像データも含める
             )
             
+            logger.info(f"Mistral OCR API call successful for {file_name}")
             return response.dict() if hasattr(response, 'dict') else response
             
         except Exception as e:
-            logger.error(f"Mistral API call failed: {e}")
+            logger.error(f"Mistral API call failed for {file_name}: {e}")
+            logger.error(f"Full error details: {str(e)}")
             raise
     
     async def process_image_to_markdown(
@@ -132,35 +158,63 @@ class MistralOCRTool:
                 image_type
             )
             
-            if response and 'pages' in response and len(response['pages']) > 0:
-                markdown_content = response['pages'][0].get('markdown', '')
-                logger.info(f"Successfully processed image {image_name} to markdown")
-                return markdown_content
+            # 画像レスポンスの処理
+            if response:
+                # レスポンス構造をログ出力
+                logger.info(f"Mistral OCR response structure for image {image_name}: {list(response.keys()) if isinstance(response, dict) else type(response)}")
+                
+                markdown_content = ""
+                
+                # 直接的なmarkdownフィールドをチェック
+                if isinstance(response, dict) and 'markdown' in response:
+                    markdown_content = response['markdown']
+                # pagesフィールドをチェック（画像は通常1ページ）
+                elif isinstance(response, dict) and 'pages' in response and len(response['pages']) > 0:
+                    markdown_content = response['pages'][0].get('markdown', '')
+                # contentフィールドをチェック
+                elif isinstance(response, dict) and 'content' in response:
+                    markdown_content = response['content']
+                # レスポンス全体が文字列の場合
+                elif isinstance(response, str):
+                    markdown_content = response
+                else:
+                    logger.warning(f"Unexpected response format from Mistral OCR for image: {response}")
+                    markdown_content = str(response)
+                
+                if markdown_content:
+                    logger.info(f"Successfully processed image {image_name} to markdown ({len(markdown_content)} chars)")
+                    return markdown_content
+                else:
+                    logger.error(f"No markdown content found in response for image {image_name}")
+                    raise RuntimeError(f"No markdown content found in Mistral OCR response for image {image_name}")
             else:
-                logger.error(f"Invalid response from Mistral OCR API for image {image_name}")
-                raise RuntimeError(f"Invalid response from Mistral OCR API for image {image_name}")
+                logger.error(f"Empty response from Mistral OCR API for image {image_name}")
+                raise RuntimeError(f"Empty response from Mistral OCR API for image {image_name}")
                 
         except Exception as e:
             logger.error(f"Error processing image {image_name} with Mistral OCR: {e}")
             raise RuntimeError(f"Failed to process image with Mistral OCR: {e}")
     
     def _process_image_with_mistral_api(self, image_base64: str, image_name: str, image_type: str) -> dict:
-        """画像をMistral OCR APIで処理"""
+        """画像をMistral OCR APIで処理（公式ドキュメント準拠）"""
         
         try:
+            # 画像の場合も同じdocument形式を使用
             response = self.client.ocr.process(
+                model="mistral-ocr-latest",
                 document={
-                    "type": "document_base64",
-                    "document_base64": f"data:{image_type};base64,{image_base64}",
-                    "document_name": image_name
+                    "type": "document_url",
+                    "document_url": f"data:{image_type};base64,{image_base64}"
                 },
-                model="mistral-ocr-2503"
+                include_image_base64=True
             )
             
+            logger.info(f"Mistral OCR API call successful for image {image_name}")
             return response.dict() if hasattr(response, 'dict') else response
             
         except Exception as e:
-            logger.error(f"Mistral API call failed for image: {e}")
+            logger.error(f"Mistral API call failed for image {image_name}: {e}")
+            logger.error(f"Full error details: {str(e)}")
             raise
     
     def _detect_image_type(self, image_content: bytes) -> Optional[str]:

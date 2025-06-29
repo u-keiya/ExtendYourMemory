@@ -391,6 +391,24 @@ class GoogleDriveTool:
                 try:
                     content = await self._get_file_content(file)
                     if content:
+                        # PDFファイルでOCR処理が必要な場合
+                        ocr_processed = False
+                        if file['mimeType'] == 'application/pdf' and content.startswith('[PDF_FOR_OCR]'):
+                            try:
+                                from mistral_ocr_tool import MistralOCRTool
+                                ocr_tool = MistralOCRTool()
+                                pdf_base64 = content.replace('[PDF_FOR_OCR]', '')
+                                import base64
+                                pdf_bytes = base64.b64decode(pdf_base64)
+                                markdown_content = await ocr_tool.process_pdf_to_markdown(pdf_bytes, file['name'])
+                                content = markdown_content
+                                ocr_processed = True
+                                logger.info(f"Successfully processed PDF with OCR: {file['name']}")
+                            except Exception as ocr_error:
+                                logger.warning(f"OCR processing failed for {file['name']}: {ocr_error}")
+                                # OCR失敗時はプレースホルダーコンテンツを使用
+                                content = f"[PDF file: {file['name']} - OCR processing failed: {str(ocr_error)[:100]}]"
+                        
                         documents.append({
                             "content": content,
                             "metadata": {
@@ -401,7 +419,8 @@ class GoogleDriveTool:
                                 "modifiedTime": file.get('modifiedTime'),
                                 "size": file.get('size'),
                                 "webViewLink": file.get('webViewLink'),
-                                "source": "google_drive"
+                                "source": "google_drive",
+                                "ocr_processed": ocr_processed
                             },
                             "file_id": file['id'],
                             "title": file['name'],
@@ -465,10 +484,12 @@ class GoogleDriveTool:
             
             # PDFファイルの場合
             elif mime_type == 'application/pdf':
-                # PDFはMistral OCRで処理するため、バイナリコンテンツを返す
+                # PDFはMistral OCRで処理するため、base64エンコードしたバイナリコンテンツを返す
                 request = self.service.files().get_media(fileId=file_id)
                 content_bytes = request.execute()
-                return f"[PDF_BINARY_CONTENT]{len(content_bytes)} bytes"
+                import base64
+                pdf_base64 = base64.b64encode(content_bytes).decode('utf-8')
+                return f"[PDF_FOR_OCR]{pdf_base64}"
             
             # その他のファイル
             else:
