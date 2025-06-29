@@ -240,9 +240,15 @@ export default function Home() {
           // RAG検索の結果を保存
           if (data.data.stage === 'rag_search_complete' && data.data.details) {
             const newRagResults = data.data.details.results || []
+            
+            // 日本語文字化けのデバッグ情報を追加
+            console.log('RAG results received:', newRagResults.length, 'results')
+            if (newRagResults.length > 0) {
+              console.log('First result content sample:', newRagResults[0].content?.substring(0, 100))
+            }
+            
             setRagResults(newRagResults)
             setPendingRagResults(newRagResults) // 検索完了時に使用するため
-            console.log('RAG results saved:', newRagResults.length, 'results')
           }
         } else if (data.event === 'search_complete') {
           const result = data.data
@@ -688,7 +694,7 @@ export default function Home() {
                             スコア: {ragResult.score?.toFixed(3) || 'N/A'}
                           </div>
                           <div className="text-black mb-2">
-                            {ragResult.content?.substring(0, 150) || ragResult.page_content?.substring(0, 150)}...
+                            {(ragResult.content?.substring(0, 150) || ragResult.page_content?.substring(0, 150) || '内容なし')}...
                           </div>
                           {ragResult.metadata?.source && (
                             <div className="text-xs mt-1">

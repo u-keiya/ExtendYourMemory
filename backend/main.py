@@ -110,13 +110,13 @@ async def websocket_search(websocket: WebSocket):
             await websocket.send_text(json.dumps({
                 "event": "search_complete",
                 "data": result.dict()
-            }))
+            }, ensure_ascii=False))
             
     except Exception as e:
         await websocket.send_text(json.dumps({
             "event": "error",
             "message": str(e)
-        }))
+        }, ensure_ascii=False))
 
 async def process_search_with_progress(query: str, websocket: WebSocket, excluded_folder_ids: Optional[List[str]] = None) -> SearchResult:
     """進捗をWebSocketで送信しながら検索を実行"""
@@ -131,7 +131,7 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
                 message="検索キーワードを生成中...",
                 details={"query": query}
             ).dict()
-        }))
+        }, ensure_ascii=False))
         
         # AGRフレームワークによる階層的キーワード生成
         keyword_data = await rag_pipeline.generate_hierarchical_keywords(query)
@@ -157,7 +157,7 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
                     "searching": ["google_drive", "chrome_history"]
                 }
             ).dict()
-        }))
+        }, ensure_ascii=False))
         
         documents = await rag_pipeline.search_with_mcp(keywords, excluded_folder_ids, keyword_data)
         logger.info(f"Retrieved {len(documents)} documents from MCP")
@@ -167,7 +167,7 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
             await websocket.send_text(json.dumps({
                 "event": "error",
                 "message": "検索結果が0件でした。キーワードを変更して再度検索してください。"
-            }))
+            }, ensure_ascii=False))
             raise HTTPException(status_code=404, detail="検索結果が0件です")
         
         # ステップ4: ベクトル化（適応的最適化対応）
@@ -188,7 +188,7 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
                     }
                 }
             ).dict()
-        }))
+        }, ensure_ascii=False))
         
         vector_store = await rag_pipeline.process_and_store_documents(documents, query_analysis)
         logger.info("Documents processed and stored in vector database")
@@ -208,7 +208,7 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
                 message="セマンティック検索を実行中...",
                 details={"rag_queries": rag_queries}
             ).dict()
-        }))
+        }, ensure_ascii=False))
         
         # 設定から類似度関連パラメータを取得
         similarity_threshold = excluded_folders_config.get_similarity_threshold()
@@ -256,8 +256,15 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
                 else:
                     return obj
             
+            # 日本語の文字化けを防ぐため、UTF-8エンコーディングを確実にする
+            content = doc.page_content[:500] if hasattr(doc, 'page_content') else str(doc)[:500]
+            
+            # 文字化けの原因となる可能性のある制御文字を除去
+            import re
+            content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', content)
+            
             doc_data = {
-                "content": doc.page_content[:500] if hasattr(doc, 'page_content') else str(doc)[:500],
+                "content": content,
                 "metadata": convert_to_serializable(metadata),
                 "score": convert_to_serializable(score)
             }
@@ -276,7 +283,7 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
                     "similarity_threshold": similarity_threshold
                 }
             ).dict()
-        }))
+        }, ensure_ascii=False))
         
         # ステップ7: レポート生成
         await websocket.send_text(json.dumps({
@@ -290,7 +297,7 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
                     "citations_count": len(relevant_docs)
                 }
             ).dict()
-        }))
+        }, ensure_ascii=False))
         
         report = await rag_pipeline.generate_report(query, relevant_docs)
         logger.info("Report generated successfully")
@@ -309,7 +316,7 @@ async def process_search_with_progress(query: str, websocket: WebSocket, exclude
         await websocket.send_text(json.dumps({
             "event": "error",
             "message": f"検索中にエラーが発生しました: {str(e)}"
-        }))
+        }, ensure_ascii=False))
         raise
 
 @app.post("/search", response_model=SearchResult)
@@ -354,7 +361,7 @@ async def search_endpoint(request: QueryRequest):
         enable_relevance_check = excluded_folders_config.is_final_relevance_check_enabled()
         
         # 最終関連性チェックを無効にする場合はoriginal_queryをNoneに
-        original_query_for_search = query if enable_relevance_check else None
+        original_query_for_search = request.query if enable_relevance_check else None
         
         relevant_docs = await rag_pipeline.semantic_search(
             rag_queries, 
