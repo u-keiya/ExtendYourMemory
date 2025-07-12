@@ -248,9 +248,35 @@ class RAGPipeline:
                                 logger.warning(f"Web fetch failed: {e}")
                     else:
                         logger.error(f"Chrome history search HTTP error: {chrome_response.status_code} - {chrome_response.text}")
-                                
                 except Exception as e:
                     logger.error(f"Chrome history search failed: {e}")
+                
+                # ChatGPT履歴検索
+                try:
+                    chatgpt_response = await client.post(
+                        f"{self.mcp_server_url}/tools/search_chatgpt_history",
+                        json={
+                            "keywords": keywords,
+                            "days": 90,
+                            "max_results": 100
+                        }
+                    )
+                    logger.info(f"ChatGPT history response status: {chatgpt_response.status_code}")
+                    if chatgpt_response.status_code == 200:
+                        chatgpt_results = chatgpt_response.json()
+                        logger.info(f"ChatGPT history returned {len(chatgpt_results)} results")
+                        
+                        for item in chatgpt_results:
+                            # Add ChatGPT conversation as document
+                            documents.append(Document(
+                                page_content=item.get("content", ""),
+                                metadata=item.get("metadata", {})
+                            ))
+                    else:
+                        logger.error(f"ChatGPT history search HTTP error: {chatgpt_response.status_code} - {chatgpt_response.text}")
+                                
+                except Exception as e:
+                    logger.error(f"ChatGPT history search failed: {e}")
         
         except Exception as e:
             logger.error(f"MCP search failed: {e}")

@@ -47,6 +47,12 @@ interface ToolStatus {
     cached_items: number
     extension_communication: string
   }
+  chatgpt_history: {
+    tool_type: string
+    cache_valid: boolean
+    cached_conversations: number
+    extension_communication: string
+  }
   mistral_ocr: {
     api_key_configured: boolean
     client_initialized: boolean
@@ -437,7 +443,7 @@ export default function Home() {
               <Shield className="h-5 w-5" />
               データソース接続状況
             </h2>
-            <div className="grid md:grid-cols-2 gap-4">
+            <div className="grid md:grid-cols-3 gap-4">
               {/* Google Drive */}
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="flex items-center gap-3">
@@ -513,6 +519,43 @@ export default function Home() {
                     </button>
                   )}
                   {toolStatus.chrome_history.cache_valid ? (
+                    <CheckCircle className="h-5 w-5 text-green-500" />
+                  ) : (
+                    <AlertCircle className="h-5 w-5 text-yellow-500" />
+                  )}
+                </div>
+              </div>
+
+              {/* ChatGPT History */}
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className={`h-3 w-3 rounded-full ${
+                    toolStatus.chatgpt_history?.cache_valid 
+                      ? 'bg-green-500' 
+                      : 'bg-yellow-500'
+                  }`} />
+                  <div>
+                    <div className="font-medium text-black">ChatGPT History</div>
+                    <div className="text-sm text-black">
+                      {toolStatus.chatgpt_history?.cache_valid 
+                        ? `${toolStatus.chatgpt_history.cached_conversations}件の会話` 
+                        : '拡張機能が必要'}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!toolStatus.chatgpt_history?.cache_valid && (
+                    <button
+                      onClick={async () => {
+                        // ChatGPT拡張機能のステータスチェック（将来実装）
+                        alert('ChatGPT履歴検索用の拡張機能が必要です。詳細は開発者にお問い合わせください。')
+                      }}
+                      className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                    >
+                      詳細
+                    </button>
+                  )}
+                  {toolStatus.chatgpt_history?.cache_valid ? (
                     <CheckCircle className="h-5 w-5 text-green-500" />
                   ) : (
                     <AlertCircle className="h-5 w-5 text-yellow-500" />

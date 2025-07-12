@@ -17,6 +17,7 @@ from pydantic import BaseModel
 # ツールクラスのインポート
 from google_drive_tool import GoogleDriveTool
 from chrome_history_tool_remote import RemoteChromeHistoryTool
+from chatgpt_history_tool import ChatGPTHistoryTool
 from mistral_ocr_tool import MistralOCRTool
 from web_fetch_tool import WebFetchTool
 
@@ -52,6 +53,7 @@ app.add_middleware(
 # ツールインスタンス
 google_drive_tool = GoogleDriveTool()
 chrome_history_tool = RemoteChromeHistoryTool()
+chatgpt_history_tool = ChatGPTHistoryTool()
 mistral_ocr_tool = MistralOCRTool()
 web_fetch_tool = WebFetchTool()
 
@@ -65,6 +67,11 @@ class SearchGoogleDriveRequest(BaseModel):
     excluded_folder_ids: Optional[List[str]] = None
 
 class SearchChromeHistoryRequest(BaseModel):
+    keywords: List[str]
+    days: int = 30
+    max_results: int = 50
+
+class SearchChatGPTHistoryRequest(BaseModel):
     keywords: List[str]
     days: int = 30
     max_results: int = 50
@@ -90,6 +97,12 @@ class RecentHistoryRequest(BaseModel):
 class HistoryDataRequest(BaseModel):
     """Chrome Extension からの履歴データ受信用モデル"""
     history_items: List[Dict[str, Any]]
+    client_id: Optional[str] = None
+    timestamp: Optional[float] = None
+
+class ChatGPTDataRequest(BaseModel):
+    """Chrome Extension からのChatGPT会話データ受信用モデル"""
+    conversation_items: List[Dict[str, Any]]
     client_id: Optional[str] = None
     timestamp: Optional[float] = None
 
@@ -198,6 +211,84 @@ async def chrome_extension_command(command: ExtensionCommand):
         logger.error(f"Error processing extension command: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ChatGPT Extension API endpoints
+@app.post("/api/chatgpt/conversations")
+async def receive_chatgpt_conversations(request: ChatGPTDataRequest):
+    """Chrome Extension からのChatGPT会話データを受信"""
+    try:
+        logger.info(f"Received ChatGPT conversation data: {len(request.conversation_items)} items")
+        
+        result = await chatgpt_history_tool.receive_conversation_data(request.conversation_items)
+        
+        return JSONResponse(content=result)
+        
+    except Exception as e:
+        logger.error(f"Error receiving ChatGPT conversations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chatgpt/conversations/search")
+async def search_chatgpt_conversations_endpoint(
+    keywords: str = "",
+    days: int = 30,
+    max_results: int = 50
+):
+    """ChatGPT会話検索エンドポイント (GET version for Chrome Extension)"""
+    try:
+        keyword_list = [k.strip() for k in keywords.split(",") if k.strip()] if keywords else []
+        
+        logger.info(f"ChatGPT conversation search: keywords={keyword_list}, days={days}")
+        
+        conversations = await chatgpt_history_tool.search_conversations(
+            keywords=keyword_list,
+            days=days,
+            max_results=max_results
+        )
+        
+        return JSONResponse(content={
+            "success": True,
+            "data": conversations,
+            "total": len(conversations)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in ChatGPT conversation search: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chatgpt/conversations/recent")
+async def get_recent_chatgpt_conversations_endpoint(
+    hours: int = 24,
+    max_results: int = 100
+):
+    """最近のChatGPT会話取得エンドポイント (GET version for Chrome Extension)"""
+    try:
+        logger.info(f"Getting recent ChatGPT conversations: {hours} hours, max {max_results}")
+        
+        recent_conversations = await chatgpt_history_tool.get_recent_conversations(
+            hours=hours,
+            max_results=max_results
+        )
+        
+        return JSONResponse(content={
+            "success": True,
+            "data": recent_conversations,
+            "total": len(recent_conversations)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting recent ChatGPT conversations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chatgpt/extension")
+async def chatgpt_extension_command(command: ExtensionCommand):
+    """Handle requests directed to the ChatGPT Chrome extension"""
+    try:
+        logger.info(f"ChatGPT Extension command: {command.action}")
+        # Placeholder implementation - extension polls this endpoint
+        return {"success": True, "received": command.action}
+    except Exception as e:
+        logger.error(f"Error processing ChatGPT extension command: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/chrome/register")
 async def register_chrome_extension(request: Request):
     """Chrome Extension の登録エンドポイント"""
@@ -285,6 +376,25 @@ async def search_chrome_history(request: SearchChromeHistoryRequest):
         
     except Exception as e:
         logger.error(f"Error in search_chrome_history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/tools/search_chatgpt_history")
+async def search_chatgpt_history(request: SearchChatGPTHistoryRequest):
+    """ChatGPT会話履歴からキーワードに基づいて検索"""
+    try:
+        logger.info(f"ChatGPT history search: keywords={request.keywords}")
+        
+        conversation_items = await chatgpt_history_tool.search_conversations(
+            keywords=request.keywords,
+            days=request.days,
+            max_results=request.max_results
+        )
+        
+        logger.info(f"Found {len(conversation_items)} items in ChatGPT history")
+        return conversation_items
+        
+    except Exception as e:
+        logger.error(f"Error in search_chatgpt_history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/tools/ocr_pdf_to_markdown")
@@ -460,6 +570,7 @@ async def check_tools_status():
         status = {
             "google_drive": google_drive_tool.get_status(),
             "chrome_history": chrome_history_tool.get_status(),
+            "chatgpt_history": chatgpt_history_tool.get_status(),
             "mistral_ocr": await mistral_ocr_tool.check_api_status(),
             "mcp_server": {
                 "status": "running",
