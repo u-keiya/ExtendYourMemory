@@ -18,7 +18,7 @@
       "js": ["content.js"]
     },
     {
-      "matches": ["https://chat.openai.com/*"],
+      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*"],
       "js": ["chatgpt-bridge.js"],
       "run_at": "document_start"
     }
@@ -31,7 +31,8 @@
     "http://localhost:8501/*",
     "http://localhost:8000/*",
     "https://*.yourdomain.com/*",
-    "https://chat.openai.com/*"
+    "https://chat.openai.com/*",
+    "https://chatgpt.com/*"
   ],
   "web_accessible_resources": [
     {
