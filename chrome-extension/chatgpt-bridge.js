@@ -567,35 +567,177 @@ function injectBridgeIntoPage() {
             extractData: function() {
                 console.log('🔍 Extracting ChatGPT conversations...');
                 
-                // Simple extraction method
                 const conversations = [];
                 
-                // Try to extract from current page
-                const pageText = document.body ? document.body.textContent : '';
-                if (pageText.length > 100) {
-                    const testConversation = {
-                        id: 'page_content_' + Date.now(),
-                        title: 'Current ChatGPT Session - ' + new Date().toLocaleDateString(),
+                // Method 1: Extract actual conversation messages
+                console.log('🔍 Searching for conversation messages...');
+                
+                let messages = [];
+                
+                // Try multiple selectors for ChatGPT messages
+                const messageMethods = [
+                    // Method A: Modern ChatGPT with data attributes
+                    () => {
+                        const messageElements = document.querySelectorAll('[data-message-author-role]');
+                        console.log('Method A: Found ' + messageElements.length + ' messages with data-message-author-role');
+                        
+                        messageElements.forEach((element, index) => {
+                            const role = element.getAttribute('data-message-author-role');
+                            const content = element.textContent?.trim();
+                            
+                            if (content && content.length > 20) {
+                                messages.push({
+                                    id: 'msg_data_${index}',
+                                    role: role,
+                                    content: content,
+                                    timestamp: Date.now() / 1000
+                                });
+                            }
+                        });
+                    },
+                    
+                    // Method B: Look for conversation groups/articles
+                    () => {
+                        const groupElements = document.querySelectorAll('.group, article, [data-testid*="conversation"]');
+                        console.log('Method B: Found ' + groupElements.length + ' conversation groups');
+                        
+                        groupElements.forEach((element, index) => {
+                            const content = element.textContent?.trim();
+                            if (content && content.length > 30) {
+                                // Try to determine role from surrounding context
+                                let role = 'assistant';
+                                
+                                // Look for user indicators
+                                if (element.querySelector('img[alt*="user"], [class*="user"]') ||
+                                    content.match(/^(You|ユーザー):/i)) {
+                                    role = 'user';
+                                }
+                                
+                                messages.push({
+                                    id: 'msg_group_${index}',
+                                    role: role,
+                                    content: content,
+                                    timestamp: Date.now() / 1000
+                                });
+                            }
+                        });
+                    },
+                    
+                    // Method C: Extract from any visible text containers
+                    () => {
+                        const textElements = document.querySelectorAll('div[class*="markdown"], .prose, p, div[role="presentation"]');
+                        console.log('Method C: Found ' + textElements.length + ' text elements');
+                        
+                        let currentRole = 'user';
+                        textElements.forEach((element, index) => {
+                            const content = element.textContent?.trim();
+                            if (content && content.length > 20 && !content.includes('ChatGPT')) {
+                                // Alternate between user and assistant
+                                currentRole = currentRole === 'user' ? 'assistant' : 'user';
+                                
+                                messages.push({
+                                    id: 'msg_text_${index}',
+                                    role: currentRole,
+                                    content: content,
+                                    timestamp: Date.now() / 1000
+                                });
+                            }
+                        });
+                    }
+                ];
+                
+                // Try each method until we get content
+                for (let i = 0; i < messageMethods.length; i++) {
+                    try {
+                        messageMethods[i]();
+                        if (messages.length > 0) {
+                            console.log('✅ Method ' + (i + 1) + ' found ' + messages.length + ' messages');
+                            break;
+                        }
+                    } catch (error) {
+                        console.warn('Method ' + (i + 1) + ' failed:', error);
+                    }
+                }
+                
+                // Remove duplicates
+                const uniqueMessages = [];
+                for (const message of messages) {
+                    const isDuplicate = uniqueMessages.some(existing => 
+                        existing.content.substring(0, 50) === message.content.substring(0, 50)
+                    );
+                    if (!isDuplicate) {
+                        uniqueMessages.push(message);
+                    }
+                }
+                
+                console.log('📝 Unique messages found: ' + uniqueMessages.length);
+                
+                // Create conversation object with actual messages
+                if (uniqueMessages.length > 0) {
+                    const pageTitle = document.title?.replace(' | ChatGPT', '').trim() || 'ChatGPT Conversation';
+                    const conversationId = window.location.pathname.split('/').pop() || 'current_session';
+                    
+                    const conversation = {
+                        id: conversationId + '_' + Date.now(),
+                        title: pageTitle,
                         create_time: Date.now() / 1000,
                         update_time: Date.now() / 1000,
-                        mapping: {
-                            'current_content': {
-                                message: {
-                                    content: {
-                                        parts: [pageText.substring(0, 1000)]
-                                    },
-                                    role: 'assistant',
-                                    create_time: Date.now() / 1000
-                                }
-                            }
-                        },
+                        mapping: {},
                         metadata: {
                             source: 'chatgpt_page_injection',
                             url: window.location.href,
-                            extracted_at: Date.now() / 1000
+                            extracted_at: Date.now() / 1000,
+                            message_count: uniqueMessages.length
                         }
                     };
-                    conversations.push(testConversation);
+                    
+                    // Add all messages to mapping
+                    uniqueMessages.forEach((msg, index) => {
+                        conversation.mapping[msg.id] = {
+                            message: {
+                                content: {
+                                    parts: [msg.content]
+                                },
+                                role: msg.role,
+                                create_time: msg.timestamp
+                            }
+                        };
+                    });
+                    
+                    conversations.push(conversation);
+                    console.log('✅ Created conversation with ' + uniqueMessages.length + ' messages');
+                } else {
+                    // Fallback: basic page content
+                    console.log('⚠️ No structured messages found, using page content fallback');
+                    const pageText = document.body ? document.body.textContent : '';
+                    if (pageText.length > 100) {
+                        const pageTitle = document.title?.replace(' | ChatGPT', '').trim() || 'ChatGPT Session';
+                        
+                        const fallbackConversation = {
+                            id: 'page_content_' + Date.now(),
+                            title: pageTitle,
+                            create_time: Date.now() / 1000,
+                            update_time: Date.now() / 1000,
+                            mapping: {
+                                'page_content': {
+                                    message: {
+                                        content: {
+                                            parts: [pageText.substring(0, 2000)]
+                                        },
+                                        role: 'assistant',
+                                        create_time: Date.now() / 1000
+                                    }
+                                }
+                            },
+                            metadata: {
+                                source: 'chatgpt_page_injection_fallback',
+                                url: window.location.href,
+                                extracted_at: Date.now() / 1000,
+                                message_count: 1
+                            }
+                        };
+                        conversations.push(fallbackConversation);
+                    }
                 }
                 
                 console.log('📦 Extracted conversations:', conversations.length);
