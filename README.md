@@ -26,6 +26,8 @@
 
 - 📁 **Google Drive** の文書、スプレッドシート、PDF
 - 🌐 **ブラウザ履歴** Chromeからのコンテンツ取得
+- 💬 **ChatGPT会話履歴** 過去のChatGPTとの対話を検索
+- 🧠 **Gemini会話履歴** 過去のGeminiとの対話を検索
 - 📄 **ウェブページ** PDFのOCR処理付き
 - 🤖 **AI分析** Gemini 2.5 Flashを使用
 
@@ -36,8 +38,9 @@
 ### 🔍 **インテリジェント検索**
 - **AGRフレームワーク**: 高度なクエリ分析とキーワード生成
 - **階層キーワード**: プライマリ、セカンダリ、コンテキスト、ネガティブキーワード
-- **マルチソース統合**: Google Driveとブラウザ履歴の横断検索
+- **マルチソース統合**: Google Drive、ブラウザ履歴、ChatGPT/Gemini会話履歴の横断検索
 - **セマンティック検索**: FAISS駆動のベクトル検索とMMR（最大限界関連性）
+- **AI会話統合**: 過去のChatGPTとGeminiとの対話からの知識抽出
 
 ### 📊 **スマートレポート生成**
 - **構造化出力**: 要約、詳細分析、重要ポイント、結論
@@ -64,21 +67,25 @@ graph TB
     B --> C[MCPサーバー - FastMCP]
     C --> D[Google Drive API]
     C --> E[Chrome履歴]
-    C --> F[Mistral OCR]
-    B --> G[FAISSベクトルストア]
-    B --> H[Gemini 2.5 Flash]
-    B --> I[LangChain RAGパイプライン]
+    C --> F[ChatGPT会話履歴]
+    C --> G[Gemini会話履歴]
+    C --> H[Mistral OCR]
+    B --> I[FAISSベクトルストア]
+    B --> J[Gemini 2.5 Flash]
+    B --> K[LangChain RAGパイプライン]
     
     subgraph "データソース"
         D
         E
         F
+        G
+        H
     end
     
     subgraph "AI処理"
-        H
+        J
+        K
         I
-        G
     end
 ```
 
@@ -286,7 +293,41 @@ npm run dev
 
 **重要**: Chromeデータベースに直接アクセスする場合、Chromeを完全に終了する必要があります。
 
-### 4. 環境変数
+### 5. ChatGPT・Gemini会話履歴アクセス
+
+**Extend Your Memory**は、ChatGPTとGeminiとの過去の会話履歴を検索対象に含めることができます。Chrome拡張機能を通じて安全にアクセスします。
+
+#### 初回セットアップ手順
+
+1. **Chrome拡張機能がインストールされていることを確認**
+   - 上記「Chrome履歴アクセス」セクションの手順に従って拡張機能をインストール
+
+2. **ChatGPTまたはGeminiサイトにアクセス**
+   ```
+   https://chat.openai.com/    # ChatGPTの場合
+   https://gemini.google.com/  # Geminiの場合
+   ```
+
+3. **会話履歴の自動収集**
+   - 初回アクセス時に拡張機能が自動的に会話履歴を収集します
+   - ブラウザコンソールで進捗を確認できます（F12 → Console）
+
+4. **Extend Your Memoryで検索**
+   - 通常の検索に過去のAI会話内容が含まれるようになります
+   - 「○○について以前ChatGPTに聞いたことは？」などの検索が可能
+
+#### 重要事項
+- **プライバシー保護**: 会話内容はローカル処理のみ、外部送信なし
+- **自動更新**: サイト訪問時に新しい会話が自動的に追加されます
+- **検索統合**: Google DriveやChrome履歴と同時に検索されます
+
+#### 対応状況
+- ✅ **ChatGPT** (chat.openai.com, chatgpt.com)
+- ✅ **Gemini** (gemini.google.com, bard.google.com)
+
+**使用例**: 「機械学習について過去にAIと議論した内容をまとめて」などの検索で、ChatGPTやGeminiとの過去の対話から関連情報を抽出できます。
+
+### 6. 環境変数
 
 プロジェクトルートに`.env`ファイルを作成：
 
@@ -330,6 +371,9 @@ LOG_LEVEL=INFO
 "最近のブラウジングでReactフックについて学んだことは？"
 "プロジェクト管理手法に関するメモをまとめて"
 "私の文書からPython最適化技術を見つけて"
+"以前ChatGPTに質問したデータ分析について教えて"
+"Geminiと話した量子コンピューティングの内容をまとめて"
+"AIとの過去の対話から機械学習のベストプラクティスを抽出して"
 ```
 
 ### 高度な機能

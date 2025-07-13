@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from google_drive_tool import GoogleDriveTool
 from chrome_history_tool_remote import RemoteChromeHistoryTool
 from chatgpt_history_tool import ChatGPTHistoryTool
+from gemini_history_tool import GeminiHistoryTool
 from mistral_ocr_tool import MistralOCRTool
 from web_fetch_tool import WebFetchTool
 
@@ -43,7 +44,11 @@ app.add_middleware(
         "http://localhost:*",
         "https://localhost:*",
         "http://localhost:3000", 
-        "http://localhost:8000"
+        "http://localhost:8000",
+        "https://chat.openai.com",
+        "https://chatgpt.com",
+        "https://gemini.google.com",
+        "https://bard.google.com"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -54,6 +59,7 @@ app.add_middleware(
 google_drive_tool = GoogleDriveTool()
 chrome_history_tool = RemoteChromeHistoryTool()
 chatgpt_history_tool = ChatGPTHistoryTool()
+gemini_history_tool = GeminiHistoryTool()
 mistral_ocr_tool = MistralOCRTool()
 web_fetch_tool = WebFetchTool()
 
@@ -289,6 +295,84 @@ async def chatgpt_extension_command(command: ExtensionCommand):
         logger.error(f"Error processing ChatGPT extension command: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Gemini エンドポイント
+@app.post("/api/gemini/conversations")
+async def receive_gemini_conversations(request: ChatGPTDataRequest):
+    """Chrome Extension からのGemini会話データを受信"""
+    try:
+        logger.info(f"Received Gemini conversation data: {len(request.conversation_items)} items")
+        
+        result = await gemini_history_tool.receive_conversation_data(request.conversation_items)
+        
+        return JSONResponse(content=result)
+        
+    except Exception as e:
+        logger.error(f"Error receiving Gemini conversations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/gemini/conversations/search")
+async def search_gemini_conversations_endpoint(
+    keywords: str = "",
+    days: int = 30,
+    max_results: int = 50
+):
+    """Gemini会話検索エンドポイント (GET version for Chrome Extension)"""
+    try:
+        keyword_list = [k.strip() for k in keywords.split(",") if k.strip()] if keywords else []
+        
+        logger.info(f"Gemini conversation search: keywords={keyword_list}, days={days}")
+        
+        conversations = await gemini_history_tool.search_conversations(
+            keywords=keyword_list,
+            days=days,
+            max_results=max_results
+        )
+        
+        return JSONResponse(content={
+            "success": True,
+            "data": conversations,
+            "total": len(conversations)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in Gemini conversation search: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/gemini/conversations/recent")
+async def get_recent_gemini_conversations_endpoint(
+    hours: int = 24,
+    max_results: int = 100
+):
+    """最近のGemini会話取得エンドポイント (GET version for Chrome Extension)"""
+    try:
+        logger.info(f"Getting recent Gemini conversations: {hours} hours, max {max_results}")
+        
+        recent_conversations = await gemini_history_tool.get_recent_conversations(
+            hours=hours,
+            max_results=max_results
+        )
+        
+        return JSONResponse(content={
+            "success": True,
+            "data": recent_conversations,
+            "total": len(recent_conversations)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting recent Gemini conversations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/gemini/extension")
+async def gemini_extension_command(command: ExtensionCommand):
+    """Handle requests directed to the Gemini Chrome extension"""
+    try:
+        logger.info(f"Gemini Extension command: {command.action}")
+        # Placeholder implementation - extension polls this endpoint
+        return {"success": True, "received": command.action}
+    except Exception as e:
+        logger.error(f"Error processing Gemini extension command: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/chrome/register")
 async def register_chrome_extension(request: Request):
     """Chrome Extension の登録エンドポイント"""
@@ -395,6 +479,25 @@ async def search_chatgpt_history(request: SearchChatGPTHistoryRequest):
         
     except Exception as e:
         logger.error(f"Error in search_chatgpt_history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/tools/search_gemini_history")
+async def search_gemini_history(request: SearchChatGPTHistoryRequest):
+    """Gemini会話履歴からキーワードに基づいて検索"""
+    try:
+        logger.info(f"Gemini history search: keywords={request.keywords}")
+        
+        conversation_items = await gemini_history_tool.search_conversations(
+            keywords=request.keywords,
+            days=request.days,
+            max_results=request.max_results
+        )
+        
+        logger.info(f"Found {len(conversation_items)} items in Gemini history")
+        return conversation_items
+        
+    except Exception as e:
+        logger.error(f"Error in search_gemini_history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/tools/ocr_pdf_to_markdown")
@@ -571,6 +674,7 @@ async def check_tools_status():
             "google_drive": google_drive_tool.get_status(),
             "chrome_history": chrome_history_tool.get_status(),
             "chatgpt_history": chatgpt_history_tool.get_status(),
+            "gemini_history": gemini_history_tool.get_status(),
             "mistral_ocr": await mistral_ocr_tool.check_api_status(),
             "mcp_server": {
                 "status": "running",
@@ -584,6 +688,24 @@ async def check_tools_status():
         
     except Exception as e:
         logger.error(f"Error checking tools status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/debug/gemini_cache")
+async def debug_gemini_cache():
+    """Geminiキャッシュの内容をデバッグ"""
+    try:
+        return gemini_history_tool.debug_cache_contents()
+    except Exception as e:
+        logger.error(f"Error debugging Gemini cache: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/debug/chatgpt_cache")
+async def debug_chatgpt_cache():
+    """ChatGPTキャッシュの内容をデバッグ"""
+    try:
+        return chatgpt_history_tool.debug_cache_contents()
+    except Exception as e:
+        logger.error(f"Error debugging ChatGPT cache: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

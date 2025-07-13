@@ -277,6 +277,33 @@ class RAGPipeline:
                                 
                 except Exception as e:
                     logger.error(f"ChatGPT history search failed: {e}")
+
+                # Gemini履歴検索
+                try:
+                    gemini_response = await client.post(
+                        f"{self.mcp_server_url}/tools/search_gemini_history",
+                        json={
+                            "keywords": keywords,
+                            "days": 90,
+                            "max_results": 100
+                        }
+                    )
+                    logger.info(f"Gemini history response status: {gemini_response.status_code}")
+                    if gemini_response.status_code == 200:
+                        gemini_results = gemini_response.json()
+                        logger.info(f"Gemini history returned {len(gemini_results)} results")
+                        
+                        for item in gemini_results:
+                            # Add Gemini conversation as document
+                            documents.append(Document(
+                                page_content=item.get("content", ""),
+                                metadata=item.get("metadata", {})
+                            ))
+                    else:
+                        logger.error(f"Gemini history search HTTP error: {gemini_response.status_code} - {gemini_response.text}")
+                                
+                except Exception as e:
+                    logger.error(f"Gemini history search failed: {e}")
         
         except Exception as e:
             logger.error(f"MCP search failed: {e}")
