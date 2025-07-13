@@ -1,10 +1,10 @@
 # Extend Your Memory - Chrome Extension
 
-この Chrome 拡張機能は、Extend Your Memory システムが Chrome の履歴に安全にアクセスするためのブリッジ機能を提供します。
+この Chrome 拡張機能は、Extend Your Memory システムが Chrome の履歴と ChatGPT の会話履歴に安全にアクセスするためのブリッジ機能を提供します。
 
 ## 🎯 目的
 
-Chrome の履歴データに直接 SQLite ファイルアクセスするのではなく、Chrome Extension API を使用してセキュアで適切な方法で履歴情報を取得します。
+Chrome の履歴データと ChatGPT の会話データに直接 SQLite ファイルアクセスするのではなく、Chrome Extension API と DOM アクセスを使用してセキュアで適切な方法で情報を取得します。
 
 ## 🏗️ アーキテクチャ
 
@@ -23,7 +23,12 @@ Chrome の履歴データに直接 SQLite ファイルアクセスするので�
    - ウェブページに注入されるスクリプト
    - JavaScript API の提供
 
-4. **Popup Interface** (`popup.html`, `popup.js`)
+4. **ChatGPT Bridge** (`chatgpt-bridge.js`)
+   - ChatGPT ページに特化したコンテンツスクリプト
+   - 会話履歴の抽出と送信
+   - localStorage と DOM からのデータ取得
+
+5. **Popup Interface** (`popup.html`, `popup.js`)
    - 拡張機能の状態表示
    - テスト機能
 
@@ -45,7 +50,9 @@ Chrome の履歴データに直接 SQLite ファイルアクセスするので�
 
 - `history`: Chrome 履歴へのアクセス
 - `storage`: 設定の保存
-- `activeTab`: 現在のタブへのアクセス
+- `alarms`: 定期実行タスク
+- `idle`: アイドル状態検知
+- `https://chat.openai.com/*`: ChatGPT サイトへのアクセス
 
 ### 3. サーバーURLの設定
 

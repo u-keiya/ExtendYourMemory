@@ -18,20 +18,43 @@ window.addEventListener('message', function(event) {
   
   // Check if this is our message
   if (event.data.type && event.data.type === 'EXTEND_YOUR_MEMORY_REQUEST') {
-    // Forward to background script
-    chrome.runtime.sendMessage(event.data.payload, function(response) {
-      // Send response back to the page
+    // Forward to background script with error handling
+    try {
+      chrome.runtime.sendMessage(event.data.payload, function(response) {
+        // Check for runtime errors
+        if (chrome.runtime.lastError) {
+          console.error('Extension messaging error:', chrome.runtime.lastError.message);
+          // Send error response back to the page
+          window.postMessage({
+            type: 'EXTEND_YOUR_MEMORY_RESPONSE',
+            requestId: event.data.requestId,
+            error: chrome.runtime.lastError.message,
+            response: null
+          }, '*');
+        } else {
+          // Send successful response back to the page
+          window.postMessage({
+            type: 'EXTEND_YOUR_MEMORY_RESPONSE',
+            requestId: event.data.requestId,
+            response: response
+          }, '*');
+        }
+      });
+    } catch (error) {
+      console.error('Error sending message to background script:', error);
+      // Send error response back to the page
       window.postMessage({
         type: 'EXTEND_YOUR_MEMORY_RESPONSE',
         requestId: event.data.requestId,
-        response: response
+        error: error.message,
+        response: null
       }, '*');
-    });
+    }
   }
 });
 
 // Listen for messages from background script
-chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+chrome.runtime.onMessage.addListener(function(request) {
   if (request.action === 'showExtensionStatus') {
     showExtensionStatus();
   }

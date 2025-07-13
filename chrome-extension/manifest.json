@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Extend Your Memory - Chrome History Bridge",
-  "version": "1.0.0",
-  "description": "Bridge extension to provide secure Chrome history access for Extend Your Memory",
+  "name": "Extend Your Memory - History & ChatGPT Bridge",
+  "version": "1.1.0",
+  "description": "Bridge extension to provide secure Chrome history and ChatGPT conversation access for Extend Your Memory",
   "permissions": [
     "history",
     "storage",
@@ -16,6 +16,11 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"]
+    },
+    {
+      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*"],
+      "js": ["chatgpt-bridge.js"],
+      "run_at": "document_start"
     }
   ],
   "action": {
@@ -25,11 +30,13 @@
   "host_permissions": [
     "http://localhost:8501/*",
     "http://localhost:8000/*",
-    "https://*.yourdomain.com/*"
+    "https://*.yourdomain.com/*",
+    "https://chat.openai.com/*",
+    "https://chatgpt.com/*"
   ],
   "web_accessible_resources": [
     {
-      "resources": ["history-bridge.js"],
+      "resources": ["history-bridge.js", "chatgpt-bridge.js"],
       "matches": ["<all_urls>"]
     }
   ]

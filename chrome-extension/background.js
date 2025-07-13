@@ -62,6 +62,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
     }
     return true;
+  } else if (request.type === 'SEND_CHATGPT_CONVERSATIONS') {
+    // Handle ChatGPT conversation data from content script
+    handleChatGPTConversations(request.data, sendResponse);
+    return true;
   }
 });
 
@@ -185,6 +189,58 @@ async function sendHistoryToServer(keywords = [], maxResults = 1000) {
     
     // Mark as not registered so we can retry later
     isRegistered = false;
+  }
+}
+
+// ChatGPT conversation handling
+async function handleChatGPTConversations(data, sendResponse) {
+  try {
+    console.log('📤 Handling ChatGPT conversations from content script...');
+    console.log(`Received ${data.conversation_items?.length || 0} conversations`);
+    
+    if (!isRegistered) {
+      console.log('⚠️ Not registered with server, attempting registration...');
+      await registerWithServer();
+    }
+    
+    if (!isRegistered) {
+      throw new Error('Failed to register with MCP server');
+    }
+    
+    const serverUrl = await getServerUrl();
+    console.log(`📡 Sending ChatGPT conversations to: ${serverUrl}/api/chatgpt/conversations`);
+    
+    const response = await fetch(`${serverUrl}/api/chatgpt/conversations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data)
+    });
+    
+    if (response.ok) {
+      const result = await response.json();
+      console.log('✅ Successfully sent ChatGPT conversations to server:', result);
+      sendResponse({
+        success: true,
+        message: `Sent ${data.conversation_items?.length || 0} conversations`,
+        result: result
+      });
+    } else {
+      const errorText = await response.text();
+      console.error('❌ Failed to send ChatGPT conversations:', response.status, errorText);
+      sendResponse({
+        success: false,
+        error: `Server error: ${response.status} - ${errorText}`
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Error handling ChatGPT conversations:', error);
+    sendResponse({
+      success: false,
+      error: error.message
+    });
   }
 }
 
