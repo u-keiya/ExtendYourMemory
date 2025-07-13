@@ -1,6 +1,6 @@
 """
-ChatGPT History MCP Tool Implementation
-Searches ChatGPT conversation history by accessing chat.openai.com
+Gemini History MCP Tool Implementation
+Searches Gemini (Bard) conversation history by accessing gemini.google.com
 """
 
 import os
@@ -15,7 +15,7 @@ from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
-class ChatGPTHistoryTool:
+class GeminiHistoryTool:
     def __init__(self, server_port: int = 8501):
         self.server_port = server_port
         self.server_url = f"http://localhost:{server_port}"
@@ -28,9 +28,9 @@ class ChatGPTHistoryTool:
         """Initialize the tool and check for Chrome Extension availability"""
         try:
             await self._ping_extension()
-            logger.info("ChatGPT History Extension communication established")
+            logger.info("Gemini History Extension communication established")
         except Exception as e:
-            logger.warning(f"ChatGPT History Extension not available: {e}")
+            logger.warning(f"Gemini History Extension not available: {e}")
     
     async def _ping_extension(self) -> bool:
         """Check if Chrome Extension is available and responding"""
@@ -41,7 +41,7 @@ class ChatGPTHistoryTool:
             return False
     
     async def receive_conversation_data(self, conversation_data: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Receive ChatGPT conversation data from Chrome Extension via HTTP endpoint"""
+        """Receive Gemini conversation data from Chrome Extension via HTTP endpoint"""
         try:
             if not isinstance(conversation_data, list):
                 raise ValueError("Conversation data must be a list")
@@ -85,13 +85,13 @@ class ChatGPTHistoryTool:
                         'update_time': conversation.get('update_time', create_time.timestamp()),
                         'message_count': message_count,
                         'conversation_content': conversation_content,
-                        'url': f"https://chat.openai.com/c/{conversation['id']}",
+                        'url': f"https://gemini.google.com/app/{conversation['id']}",
                         
                         # Create searchable content
                         'searchable_content': f"{conversation['title']} {conversation_content}",
                         
                         'metadata': {
-                            'source': 'chatgpt_history_extension',
+                            'source': 'gemini_history_extension',
                             'conversation_id': conversation['id'],
                             'message_count': message_count,
                             'has_content': bool(conversation_content.strip()),
@@ -115,13 +115,13 @@ class ChatGPTHistoryTool:
             self.conversation_cache = processed_data
             self.cache_timestamp = time.time()
             
-            logger.info(f"✓ Processed {len(processed_data)} ChatGPT conversations from Extension")
+            logger.info(f"✓ Processed {len(processed_data)} Gemini conversations from Extension")
             logger.info(f"  Topics: {dict(list(categories.items())[:10])}")
             logger.info(f"  Total conversations ready for LLM-based search")
             
             return {
                 "success": True,
-                "message": f"Processed {len(processed_data)} ChatGPT conversations",
+                "message": f"Processed {len(processed_data)} Gemini conversations",
                 "timestamp": datetime.now().isoformat(),
                 "topics": dict(list(categories.items())[:20]),
                 "total_conversations": len(processed_data),
@@ -141,16 +141,16 @@ class ChatGPTHistoryTool:
         days: int = 30,
         max_results: int = 50
     ) -> List[Dict[str, Any]]:
-        """Search ChatGPT conversations using cached data from Extension"""
+        """Search Gemini conversations using cached data from Extension"""
         
         # Check if we have fresh cached data
         if self._is_cache_valid():
-            logger.info("Using fresh cached ChatGPT conversation data")
+            logger.info("Using fresh cached Gemini conversation data")
             return self._search_cached_conversations(keywords, days, max_results)
         
         # If we have any cached data (even if stale), use it for search
         if self.conversation_cache:
-            logger.info(f"Using stale cached ChatGPT conversation data ({len(self.conversation_cache)} conversations)")
+            logger.info(f"Using stale cached Gemini conversation data ({len(self.conversation_cache)} conversations)")
             return self._search_cached_conversations(keywords, days, max_results)
         
         # Request fresh data from Extension only if no cache exists
@@ -165,7 +165,7 @@ class ChatGPTHistoryTool:
                     logger.info("Received fresh data from extension")
                     return self._search_cached_conversations(keywords, days, max_results)
             
-            logger.warning("No ChatGPT conversation data available after extension request")
+            logger.warning("No Gemini conversation data available after extension request")
             return []
                 
         except Exception as e:
@@ -185,15 +185,15 @@ class ChatGPTHistoryTool:
         days: int,
         max_results: int
     ) -> None:
-        """Signal Chrome Extension to send fresh ChatGPT conversation data"""
+        """Signal Chrome Extension to send fresh Gemini conversation data"""
         try:
             logger.info(
-                "Requesting fresh ChatGPT conversation data from Chrome extension for keywords: %s",
+                "Requesting fresh Gemini conversation data from Chrome extension for keywords: %s",
                 keywords,
             )
 
             payload = {
-                "action": "refreshChatGPTHistory",
+                "action": "refreshGeminiHistory",
                 "params": {
                     "keywords": keywords,
                     "days": days,
@@ -205,13 +205,13 @@ class ChatGPTHistoryTool:
                 try:
                     async with httpx.AsyncClient() as client:
                         response = await client.post(
-                            f"{self.server_url}/api/chatgpt/extension",
+                            f"{self.server_url}/api/gemini/extension",
                             json=payload,
                             timeout=10.0,
                         )
 
                     if response.status_code == 200 and response.json().get("success"):
-                        logger.info("ChatGPT extension refresh triggered successfully")
+                        logger.info("Gemini extension refresh triggered successfully")
                         return True
 
                     logger.warning(
@@ -297,7 +297,7 @@ class ChatGPTHistoryTool:
             
             title = conversation.get('title', 'Untitled Conversation')
             conversation_id = conversation.get('id', '')
-            url = conversation.get('url', f"https://chat.openai.com/c/{conversation_id}")
+            url = conversation.get('url', f"https://gemini.google.com/app/{conversation_id}")
             content = conversation.get('conversation_content', '')
             message_count = conversation.get('message_count', 0)
             
@@ -312,7 +312,7 @@ class ChatGPTHistoryTool:
                 "content": f"Title: {title}\nURL: {url}\nDate: {create_date_str}\nMessages: {message_count}\nContent: {content_preview}",
                 "full_content": content,
                 "metadata": {
-                    "source": "chatgpt_history",
+                    "source": "gemini_history",
                     "url": url,
                     "title": title,
                     "create_time": create_time_str,
@@ -331,13 +331,13 @@ class ChatGPTHistoryTool:
                 "message_count": 0,
                 "content": f"Error processing conversation: {str(e)}",
                 "metadata": {
-                    "source": "chatgpt_history",
+                    "source": "gemini_history",
                     "error": str(e)
                 }
             }
     
     async def get_recent_conversations(self, hours: int = 24, max_results: int = 100) -> List[Dict[str, Any]]:
-        """Get recent ChatGPT conversations"""
+        """Get recent Gemini conversations"""
         
         # Convert hours to days for the search function
         days = max(1, hours // 24 + (1 if hours % 24 > 0 else 0))
@@ -360,9 +360,9 @@ class ChatGPTHistoryTool:
         return filtered_items[:max_results]
     
     def get_status(self) -> Dict[str, Any]:
-        """Get status of the ChatGPT history tool"""
+        """Get status of the Gemini history tool"""
         return {
-            "tool_type": "chatgpt_history",
+            "tool_type": "gemini_history",
             "server_url": self.server_url,
             "cache_valid": self._is_cache_valid(),
             "cached_conversations": len(self.conversation_cache) if self.conversation_cache else 0,

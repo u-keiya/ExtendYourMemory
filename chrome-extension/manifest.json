@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Extend Your Memory - History & ChatGPT Bridge",
-  "version": "1.1.0",
-  "description": "Bridge extension to provide secure Chrome history and ChatGPT conversation access for Extend Your Memory",
+  "name": "Extend Your Memory - History, ChatGPT & Gemini Bridge",
+  "version": "1.2.0",
+  "description": "Bridge extension to provide secure Chrome history, ChatGPT and Gemini conversation access for Extend Your Memory",
   "permissions": [
     "history",
     "storage",
@@ -21,6 +21,11 @@
       "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*"],
       "js": ["chatgpt-bridge.js"],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://gemini.google.com/*", "https://bard.google.com/*"],
+      "js": ["gemini-bridge.js"],
+      "run_at": "document_start"
     }
   ],
   "action": {
@@ -32,11 +37,13 @@
     "http://localhost:8000/*",
     "https://*.yourdomain.com/*",
     "https://chat.openai.com/*",
-    "https://chatgpt.com/*"
+    "https://chatgpt.com/*",
+    "https://gemini.google.com/*",
+    "https://bard.google.com/*"
   ],
   "web_accessible_resources": [
     {
-      "resources": ["history-bridge.js", "chatgpt-bridge.js"],
+      "resources": ["history-bridge.js", "chatgpt-bridge.js", "gemini-bridge.js"],
       "matches": ["<all_urls>"]
     }
   ]
