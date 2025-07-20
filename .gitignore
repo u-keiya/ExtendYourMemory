@@ -1,6 +1,7 @@
 # Environment variables
 .env
 .env.local
+.env.remote
 .env.development.local
 .env.test.local
 .env.production.local
@@ -38,3 +39,6 @@ vector_store_cache/
 
 # MCP tools data
 mcp-tools/
+
+# Chrome Extension Remote Config (not tracked)
+chrome-extension/.env.chrome

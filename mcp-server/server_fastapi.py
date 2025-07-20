@@ -36,20 +36,32 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS設定 - Chrome Extension からのアクセスを許可
+# CORS設定を環境変数から取得
+# デフォルトはローカル開発環境
+default_origins = [
+    "chrome-extension://*",
+    "http://localhost:*",
+    "https://localhost:*",
+    "http://localhost:3000", 
+    "http://localhost:8000",
+    "https://chat.openai.com",
+    "https://chatgpt.com",
+    "https://gemini.google.com",
+    "https://bard.google.com"
+]
+
+# 環境変数から追加のオリジンを取得
+additional_origins = os.getenv("MCP_CORS_ORIGINS", "").split(",")
+additional_origins = [origin.strip() for origin in additional_origins if origin.strip()]
+
+# 全てのオリジンを結合
+allowed_origins = default_origins + additional_origins
+
+logger.info(f"MCP Server CORS allowed origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "chrome-extension://*",
-        "http://localhost:*",
-        "https://localhost:*",
-        "http://localhost:3000", 
-        "http://localhost:8000",
-        "https://chat.openai.com",
-        "https://chatgpt.com",
-        "https://gemini.google.com",
-        "https://bard.google.com"
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

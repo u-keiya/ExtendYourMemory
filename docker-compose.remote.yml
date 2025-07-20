@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # MCPサーバー
+  mcp-server:
+    build: ./mcp-server
+    environment:
+      - GOOGLE_SERVICE_ACCOUNT_FILE=${GOOGLE_SERVICE_ACCOUNT_FILE:-./credentials/service-account-key.json}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID}
+      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET}
+      - GOOGLE_OAUTH_REDIRECT_URI=${GOOGLE_OAUTH_REDIRECT_URI:-http://YOUR_DOMAIN:8000/auth/google/callback}
+      - MCP_CORS_ORIGINS=${MCP_CORS_ORIGINS}
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # バックエンドAPI
+  backend:
+    build: ./backend
+    environment:
+      - MCP_SERVER_URL=http://mcp-server:8501
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - DEBUG=false
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    ports:
+      - "8000:8000"  # 外部8000 -> 内部8000
+    depends_on:
+      - mcp-server
+    volumes:
+      - ./backend:/app
+      - ./config:/app/config
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # フロントエンド
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://YOUR_DOMAIN:8000}
+      - NODE_ENV=production
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+# 外部公開用の追加設定
+# リバースプロキシやSSL証明書が必要な場合は以下のサービスも追加
+#  nginx:
+#    image: nginx:alpine
+#    ports:
+#      - "80:80"
+#      - "443:443"
+#    volumes:
+#      - ./nginx.conf:/etc/nginx/nginx.conf
+#      - ./ssl:/etc/nginx/ssl
+#    depends_on:
+#      - frontend
+#      - backend
+#    restart: unless-stopped
+#    networks:
+#      - app-network

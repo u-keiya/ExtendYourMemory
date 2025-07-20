@@ -236,3 +236,225 @@ chrome://extensions/ → 拡張機能詳細 → background page を検査
 ---
 
 この拡張機能により、Extend Your Memory システムは Chrome の公式 API を使用して安全かつ適切に履歴データにアクセスできます。
+
+
+# Chrome Extension Configuration Guide
+
+Extend Your Memory Chrome拡張機能の設定・管理ガイドです。
+
+## 🚀 クイックスタート
+
+### ローカル開発環境
+```bash
+# 既存の設定で動作（変更不要）
+# localhost:8501, localhost:8000, localhost:3000
+```
+
+### リモートサーバー環境
+```bash
+cd chrome-extension/
+
+# 方法1: 対話式設定
+./configure-remote.sh
+
+# 方法2: 環境変数ファイル使用
+cp .env.chrome.template .env.chrome
+# .env.chrome を編集してから
+./configure-remote.sh
+```
+
+## 📋 設定スクリプト
+
+### `configure-remote.sh`
+- **用途**: リモートサーバー用に拡張機能を設定
+- **機能**: 
+  - 対話式設定入力
+  - 環境変数ファイル読み込み
+  - manifest.json, popup.js の自動生成
+  - HTTPS対応
+
+**使用例:**
+```bash
+# 対話式設定
+./configure-remote.sh
+
+# Tailscale環境での設定例
+REMOTE_DOMAIN=yourdomain.com ./configure-remote.sh
+
+# 環境変数ファイル使用
+echo "REMOTE_DOMAIN=yourdomain.com" > .env.chrome
+echo "USE_HTTPS=true" >> .env.chrome
+./configure-remote.sh
+```
+
+### `reset-to-local.sh`
+- **用途**: ローカル開発環境設定に戻す
+- **機能**:
+  - manifest.json, popup.js をローカル用に復元
+  - 拡張機能の保存設定をクリア
+
+**使用例:**
+```bash
+./reset-to-local.sh
+```
+
+## 🔧 環境変数設定
+
+### `.env.chrome.template`
+拡張機能設定用のテンプレートファイル:
+
+```bash
+# 基本設定
+REMOTE_DOMAIN=yourdomain.com  # サーバーIP/ドメイン
+MCP_PORT=8501                # MCP Server ポート
+BACKEND_PORT=8000            # Backend API ポート  
+FRONTEND_PORT=3000           # Frontend ポート
+
+# HTTPS設定
+USE_HTTPS=false              # HTTPS使用有無
+HTTPS_PORT=443               # HTTPS ポート
+
+# スクリプト制御
+SKIP_CONFIRMATION=false      # 確認をスキップ
+CREATE_BACKUP=true           # バックアップ作成
+```
+
+### 設定例
+
+**Tailscale環境:**
+```bash
+REMOTE_DOMAIN=yourdomain.com
+MCP_PORT=8501
+BACKEND_PORT=8000
+FRONTEND_PORT=3000
+USE_HTTPS=false
+```
+
+**本番HTTPS環境:**
+```bash
+REMOTE_DOMAIN=yourdomain.com
+MCP_PORT=8501
+BACKEND_PORT=8000
+FRONTEND_PORT=3000
+USE_HTTPS=true
+HTTPS_PORT=443
+```
+
+## 📁 ファイル構成
+
+### テンプレートファイル (git追跡対象)
+- `manifest.remote.json` - リモート用マニフェスト
+- `popup.remote.js` - リモート用ポップアップ
+- `options.html` - 設定画面HTML
+- `options.js` - 設定画面JavaScript
+
+### 生成ファイル (git追跡除外)
+- `manifest.json` - 実際に使用されるマニフェスト
+- `popup.js` - 実際に使用されるポップアップ
+- `.env.chrome` - 環境変数設定
+
+## 🔄 使用ワークフロー
+
+### 開発→本番デプロイ
+```bash
+# 1. ローカル開発
+git clone <repo>
+cd chrome-extension/
+# 既存設定で開発
+
+# 2. リモート用設定
+./configure-remote.sh
+# 設定入力
+
+# 3. Chrome拡張機能読み込み
+# chrome://extensions/ で読み込み
+
+# 4. 開発に戻る場合
+./reset-to-local.sh
+```
+
+### 環境変数ベース展開
+```bash
+# 1. 設定ファイル準備
+cat > .env.chrome << EOF
+REMOTE_DOMAIN=yourdomain
+BACKEND_PORT=8000
+EOF
+
+# 2. 自動設定
+./configure-remote.sh
+
+# 3. Chrome読み込み
+```
+
+## 🛠️ トラブルシューティング
+
+### よくある問題
+
+**1. 拡張機能が接続できない**
+```bash
+# host_permissions確認
+cat manifest.json | grep -A 10 host_permissions
+
+# サーバー接続確認
+curl http://yourdomain.com:8000/health
+```
+
+**2. 設定が反映されない**
+```bash
+# Chrome拡張機能を再読み込み
+# chrome://extensions/ → 再読み込みボタン
+
+# 設定をリセット
+./reset-to-local.sh
+./configure-remote.sh
+```
+
+**3. スクリプト実行権限エラー**
+```bash
+chmod +x configure-remote.sh
+chmod +x reset-to-local.sh
+```
+
+### ログ確認
+
+**拡張機能ログ:**
+1. `chrome://extensions/` を開く
+2. 拡張機能の「詳細」をクリック
+3. 「拡張機能エラー」または「ビュー」→「バックグラウンド」
+
+**ネットワーク確認:**
+```bash
+# ヘルスチェック
+curl http://yourdomain.com:8501/health  # MCP Server
+curl http://yourdomain.com:8000/health  # Backend API
+```
+
+## 🔒 セキュリティ考慮事項
+
+### 設定ファイル管理
+- `.env.chrome` は git追跡除外済み
+- 本番環境の設定情報は適切に管理
+
+### 権限管理
+- `host_permissions` は必要最小限に制限
+- リモートサーバーのみ追加許可
+
+### HTTPS対応
+```bash
+# HTTPS環境での設定
+USE_HTTPS=true
+REMOTE_DOMAIN=yourdomain.com
+```
+
+## 🆘 サポート
+
+問題が発生した場合:
+1. トラブルシューティングセクションを確認
+2. ログを確認
+3. 設定をリセットして再試行
+4. GitHub Issues でサポート要求
+
+---
+
+**注意**: この拡張機能はローカル・リモート両環境対応済みです。環境に応じて適切な設定スクリプトを使用してください。
