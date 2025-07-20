@@ -139,6 +139,31 @@ open http://localhost:3000
 2. APIキー（Google Drive、Mistral OCRなど）を入力
 3. デジタル記憶の検索を開始！
 
+## 🌐 リモートサーバーでの展開
+
+詳細なリモート展開手順については [DEPLOY_REMOTE.md](DEPLOY_REMOTE.md) をご参照ください。
+
+### クイック展開（Tailscale環境）
+```bash
+# 1. 環境設定
+cp .env.remote.template .env.remote
+nano .env.remote  # APIキーとドメインを設定
+cp .env.remote .env
+
+# 2. リモート用Docker起動
+docker compose -f docker-compose.remote.yml up --build -d
+
+# 3. Chrome拡張機能設定
+cd chrome-extension/
+./configure-remote.sh
+```
+
+### 主な設定項目
+- **ドメイン/IP**: あなたのサーバーアドレス
+- **ポート**: 3000(Frontend), 8000(Backend), 8501(MCP)
+- **Google OAuth**: リダイレクトURIの追加設定
+- **Chrome拡張**: 自動設定スクリプト対応
+
 ## 📋 インストール
 
 ### オプション1: Docker Compose（推奨）

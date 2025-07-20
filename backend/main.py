@@ -6,6 +6,7 @@ FastAPI server with RAG pipeline and MCP integration
 
 import json
 import logging
+import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -33,9 +34,15 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# CORS設定を環境変数から取得
+allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+allowed_origins = [origin.strip() for origin in allowed_origins]  # 空白を除去
+
+logger.info(f"CORS allowed origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
