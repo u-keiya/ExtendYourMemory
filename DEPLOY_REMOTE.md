@@ -58,24 +58,51 @@ curl http://your_domain:8501/health    # MCP Server
 curl http://your_domain:3000           # Frontend
 ```
 
-## 🔧 Google OAuth設定
+## 🔧 Google OAuth設定（重要）
 
-### Google Cloud Console設定
-1. [Google Cloud Console](https://console.cloud.google.com/) にアクセス
-2. APIs & Services > Credentials
-3. OAuth 2.0 Client IDs を編集
-4. 以下を追加:
+Google OAuthは.localドメインやプライベートIPアドレスを受け付けません。サーバーの環境に応じて以下のいずれかを選択してください：
 
-**承認済みJavaScript生成元:**
+### ケース1: パブリックドメインをお持ちの場合
+
+**Google Cloud Console設定:**
 ```
-http://your_domain:8000
-http://your_domain:3000
+https://yourdomain.com/mcp/auth/google/callback
 ```
 
-**承認済みリダイレクトURI:**
+**手順:**
+1. [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials
+2. OAuth 2.0 Client IDs を編集
+3. 承認済みリダイレクトURIに追加: `https://yourdomain.com/mcp/auth/google/callback`
+4. docker-compose.remote.ymlの`GOOGLE_OAUTH_REDIRECT_URI`を更新
+5. 即座に認証可能
+
+### ケース2: パブリックドメインをお持ちでない場合
+
+**Google Cloud Console設定:**
 ```
-http://your_domain:8000/auth/google/callback
+http://localhost:8501/auth/google/callback
 ```
+
+**手順:**
+1. Google Cloud Console設定（上記URI）
+2. 認証時のみSSHポートフォワーディングが必要:
+
+```bash
+# 方法A: 毎回実行
+ssh -L 8501:localhost:8501 [user]@[server-ip]
+
+# 方法B: ~/.ssh/configで簡略化
+Host extend-memory
+    HostName [server-ip]
+    User [username]
+    LocalForward 8501 localhost:8501
+
+# 使用時
+ssh extend-memory
+```
+
+3. アプリ使用時は通常の外部アクセス（https://memory.homeserver.local）
+4. **Google Drive認証時のみ**SSHトンネル経由
 
 ## 🌐 Chrome拡張機能のリモート対応
 
