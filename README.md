@@ -143,12 +143,11 @@ open http://localhost:3000
 
 詳細なリモート展開手順については [DEPLOY_REMOTE.md](DEPLOY_REMOTE.md) をご参照ください。
 
-### クイック展開（Tailscale環境）
+### クイック展開
 ```bash
 # 1. 環境設定
-cp .env.remote.template .env.remote
-nano .env.remote  # APIキーとドメインを設定
-cp .env.remote .env
+cp .env.remote.template .env
+nano .env  # APIキーとドメインを設定
 
 # 2. リモート用Docker起動
 docker compose -f docker-compose.remote.yml up --build -d
@@ -163,6 +162,10 @@ cd chrome-extension/
 - **ポート**: 3000(Frontend), 8000(Backend), 8501(MCP)
 - **Google OAuth**: リダイレクトURIの追加設定
 - **Chrome拡張**: 自動設定スクリプト対応
+
+ ### Google OAuth認証について
+- **パブリックドメインあり**: 即座に認証可能
+- **パブリックドメインなし**: Google Drive認証時のみSSHポートフォワーディングが必要
 
 ## 📋 インストール
 
