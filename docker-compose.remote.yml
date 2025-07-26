@@ -43,6 +43,7 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://YOUR_DOMAIN:8000}
+      - NEXT_PUBLIC_MCP_URL=${NEXT_PUBLIC_MCP_URL:-http://YOUR_DOMAIN:8501}
       - NODE_ENV=production
     depends_on:
       - backend
